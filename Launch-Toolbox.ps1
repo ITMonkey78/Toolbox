@@ -1,27 +1,27 @@
+#requires -version 2
 <#
-.Synopsis
-Generates a visual list of useful scripts and programs making them available in one place
+.SYNOPSIS
+  Generates a visual list of useful scripts and programs making them available in one place
 
 .DESCRIPTION
-This script generates a customisable list of tools and programs for ease of access and usability.
-Original idea, code and design by IntrntPirate (https://github.com/intrntpirate/Toolbox)
-
-This version removes the unnecessary Powershell Studio code, and combines the seperate files of IntrntPirate's project into one PS file.
-This drastically reduced the size of the base code from 30,000 lines of code to less than 6,000
-
+  This script generates a customisable list of tools and programs for ease of access and usability.
+  Requires PowerShell v2 and write access to the local computers registry
 
 .NOTES   
-Name       : Toolbox
-Version    : 1.1
-DateCreated: 2017-05-30
-DateUpdated: 2017-05-31
-
-
+  Name           : Toolbox
+  Version        : 1.0
+  DateCreated    : 2017-06-15
+  Author         : ITMonkey78 (ITMonkey78@gmail.com)
+  Purpose/Change : Original Code by IntrntPirate (https://github.com/IntrntPirate/Toolbox)
+                   Modified from baseline 30,000 lines of code over multiple PowerShell Studio files
+                   This version is a single file and (currently) less than 6000 lines of code.
+                   
+                   Converted some functions to work with PS ver2 for backward compatibility
+                   Added Registry Import/Export functions
+                   Rewrote Debugging and Log functions
+                   Fixed some other stuff that was broken in IntrntPirates original release
+                   Allow Powershell scripts added to Toolbox to be ran with Powershell instead of opened in notepad by default
 #>
-
-#region Source: Startup.pss
-
-#region Source: Globals.ps1
 
 #----------------------------------------------
 # region Declare Globals
@@ -29,17 +29,19 @@ DateUpdated: 2017-05-31
 #defining some app variables
 $Global:AppShortName = "Toolbox"
 $Global:AppLongName = "Powershell App Toolbox"
-$Global:CurrentRunningVersion=1.1
+$Global:CurrentRunningVersion=1.0
+
+$Global:Config_NetSourceDir="C:\Tools\Toolbox\"
+$Global:Config_RootLogLocation="C:\Tools\Toolbox\Logs\"
+$Global:Config_RootHKCU="HKCU:\SOFTWARE\Toolbox\"
+
 $Global:Config_AlwaysOnTop=$false
 $Global:Config_DebugMode=$false
+$Global:Config_EnableLogging=$true
 $Global:Config_ShowNewStuff=$true
 $Global:Config_SnapViewMode=$false
 $Global:Config_ShowToolTip=$false
 $Global:Config_UseLastKnownSizeLocation=$false
-$Global:Config_EnableLogging=1
-$Global:Config_NetSourceDir="C:\Toolbox\"
-$Global:Config_RootLogLocation="C:\Toolbox\Logs\"
-$Global:Config_RootHKCU="HKCU:\SOFTWARE\Toolbox\"
 	
 #endregion Declare Globals
 
@@ -56,9 +58,7 @@ $Global:Config_RootHKCU="HKCU:\SOFTWARE\Toolbox\"
 
 #endregion Import Assemblies
 
-#endregion Source: Startup.pss
-
-#region Source: MainForm.psf
+#region Source: MainForm
 function Show-MainForm
 {
 	#----------------------------------------------
@@ -72,6 +72,7 @@ function Show-MainForm
 	$helpToolStripMenuItem = New-Object 'System.Windows.Forms.ToolStripMenuItem'
 	$importToolStripMenuItem = New-Object 'System.Windows.Forms.ToolStripMenuItem'
 	$exportToolStripMenuItem = New-Object 'System.Windows.Forms.ToolStripMenuItem'
+	$updateToolStripMenuItem = New-Object 'System.Windows.Forms.ToolStripMenuItem'
 	$exitToolStripMenuItem = New-Object 'System.Windows.Forms.ToolStripMenuItem'
 	$showConfigToolStripMenuItem = New-Object 'System.Windows.Forms.ToolStripMenuItem'
 	$reloadConfigToolStripMenuItem = New-Object 'System.Windows.Forms.ToolStripMenuItem'
@@ -97,55 +98,8 @@ function Show-MainForm
 	$InitialFormWindowState = New-Object 'System.Windows.Forms.FormWindowState'
 	#endregion Generated Form Objects
 
-
-	#establishing some app functions
+	#establishing some internal app functions
 	function Log
-	{
-		param (
-			[string]$text,
-			[string]$component = "N/A",
-			[int]$type,
-			$date = (Get-Date)
-		)
-		switch ($type)
-		{
-			1 { $typeS = "Info" }
-			2 { $typeS = "Warning" }
-			3 { $typeS = "Error" }
-			4 { $typeS = "Verbose" }
-			default { $typeS = "N/A" }
-		}
-		If (!($Config_EnableLogging))
-		{
-			$Config_EnableLogging = "1"
-		}
-		If ($Config_EnableLogging -eq "1")
-		{
-			$count = 0
-			Do
-			{
-				Try
-				{
-					$ErrorActionPreference = 'Stop'
-					$toLog = "<![LOG[$($typeS + " : " + $text)]LOG]!><time=`"$(Get-Date $date -Format "HH:mm:ss.ffffff")`" date=`"$(Get-Date $date -Format "MM-dd-yyyy")`" component=`"$AppShortName : $Component`" context=`"`" type=`"$type`" thread=`"$PID`" file=`"$($env:COMPUTERNAME)`">"
-					Out-File -InputObject $toLog -Append -NoClobber -Encoding Default -FilePath $Config_LogPath
-					$Continue = $true
-				}
-				Catch
-				{
-					Start-Sleep -Seconds 1
-				}
-				Finally
-				{
-					$count++
-				}
-				
-			}
-			Until (($Continue -eq $true) -or ($count -eq 5))
-			$Global:Log += $text
-		}
-	}
-	function Debug-Log
 	{
 		param (
 			[string]$text,
@@ -167,31 +121,38 @@ function Show-MainForm
 		}
 		If (!($Config_EnableLogging))
 		{
-			$Config_EnableLogging = "1"
+			$Config_EnableLogging = $true
 		}
-		If ($Config_DebugMode -eq $true)
+
+		If ($Config_EnableLogging -eq $true)
 		{
-			If ($Config_EnableLogging -eq "1")
+			Do
 			{
-				Do
+				Try
 				{
-					Try
-					{
-						$ErrorActionPreference = 'Stop'
-						$toLog = "<![LOG[$($typeS + " : " + $text)]LOG]!><time=`"$(Get-Date $date -Format "HH:mm:ss.ffffff")`" date=`"$(Get-Date $date -Format "MM-dd-yyyy")`" component=`"$AppShortName : $Component`" context=`"`" type=`"$type`" thread=`"$PID`" file=`"$($env:COMPUTERNAME)`">"
-						Out-File -InputObject $toLog -Append -NoClobber -Encoding Default -FilePath $Config_LogPath
-						$Continue = $true
-					}
-					Catch
-					{
-						Start-Sleep -Seconds 1
-					}
-					Finally
-					{
-						$count++
-					}
+					$ErrorActionPreference = 'Stop'
+					$toLog = "<![LOG[$($typeS + " : " + $text)]LOG]!><time=`"$(Get-Date $date -Format "HH:mm:ss.ffffff")`" date=`"$(Get-Date $date -Format "MM-dd-yyyy")`" component=`"$AppShortName : $Component`" context=`"`" type=`"$type`" thread=`"$PID`" file=`"$($env:COMPUTERNAME)`">"
+					Out-File -InputObject $toLog -Append -NoClobber -Encoding Default -FilePath $Config_LogPath
+					$Continue = $true
 				}
-				Until (($Continue -eq $true) -or ($count -eq 5))
+				Catch
+				{
+					Start-Sleep -Seconds 1
+				}
+				Finally
+				{
+					$count++
+				}
+			}
+			Until (($Continue -eq $true) -or ($count -eq 5))
+
+			#only add the verbose text if DebugMode is $true
+			If ($typeS -eq "Verbose") {
+				If ($Config_DebugMode) {
+					$Global:Log += $text
+				}
+			}
+			else {
 				$Global:Log += $text
 			}
 		}
@@ -209,18 +170,12 @@ function Show-MainForm
 	function Build-Config
 	{
 		param ($Config2Load)
-		Log -text "Building config: $Config2Load" -component "MainForm.psf_Load-Config" -type 1
-		If (!(Test-Path "$Config_RootHKCU"))
-		{
-			$Error.Clear()
-			New-Item "$Config_RootHKCU"
-			If ($Error) { Debug-Log -text "$Error" -component "MainForm.psf_Build-Config" -type 4 }
-		}
+		Log -text "Building config: $Config2Load" -component "MainForm_Load-Config" -type 1
 		If (!(Test-Path "$Config_RootHKCU$Config2Load\"))
 		{
 			$Error.Clear()
-			New-Item "$Config_RootHKCU$Config2Load\"
-			If ($Error) { Debug-Log -text "$Error" -component "MainForm.psf_Build-Config" -type 4 }
+			New-Item "$Config_RootHKCU$Config2Load\" -force
+			If ($Error) { Log -text "$Error" -component "MainForm_Build-Config" -type 4 }
 		}
 		If (!($LoadedConfigTable))
 		{
@@ -243,7 +198,7 @@ function Show-MainForm
 			
 			If (((Get-ItemProperty "$Config_RootHKCU$Config2Load\")."$Obj"))
 			{
-				Log -text "Config item `"$Obj`" is user personalized." -component "MainForm.psf_Build-Config" -type 1
+				Log -text "Config item `"$Obj`" is user personalized." -component "MainForm_Build-Config" -type 1
 				$Val = (Get-ItemProperty "$Config_RootHKCU$Config2Load\")."$Obj"
 				$ciuc = $true
 			}
@@ -296,17 +251,17 @@ function Show-MainForm
 	}
 	function Update-LoadedConfigTable
 	{
-		Debug-Log -text "Updating Loaded Config Table..." -component "MainForm.psf_Update-LoadedConfigTable" -type 4
+		Log -text "Updating Loaded Config Table..." -component "MainForm_Update-LoadedConfigTable" -type 4
 		foreach ($row in ($LoadedConfigTable))
 		{
-			Debug-Log -text "Processing setting for config $($row.Config), setting $($row.Attribute)..." -component "MainForm.psf_Update-LoadedConfigTable" -type 4
+			Log -text "Processing setting for config $($row.Config), setting $($row.Attribute)..." -component "MainForm_Update-LoadedConfigTable" -type 4
 			If (!($row.Value -eq "$((Get-Variable -Scope Global -Name "Config_$($row.Attribute)").Value)"))
 			{
-				Debug-Log -text "Updating entry..." -component "MainForm.psf_Update-LoadedConfigTable" -type 4
+				Log -text "Updating entry..." -component "MainForm_Update-LoadedConfigTable" -type 4
 				($LoadedConfigTable.Rows | Where-Object { $_.Config -eq "$($row.Config)" -and $_.Attribute -eq "$($row.Attribute)" }).value = "$((Get-Variable -Scope Global -Name "Config_$($row.Attribute)").Value)"
 			}
 		}
-		Debug-Log -text "Finished updating Loaded Config Table." -component "MainForm.psf_Update-LoadedConfigTable" -type 4
+		Log -text "Finished updating Loaded Config Table." -component "MainForm_Update-LoadedConfigTable" -type 4
 	}
 	Function Get-FileName($initialDirectory)
 	{
@@ -315,8 +270,10 @@ function Show-MainForm
 		$OpenFileDialog.DereferenceLinks = $false
 		$OpenFileDialog.initialDirectory = $initialDirectory
 		$OpenFileDialog.filter = "CSV files (*.csv)| *.csv|All files (*.*)| *.*"
-		$OpenFileDialog.ShowDialog() | Out-Null
-		$OpenFileDialog.filename
+		If ([threading.thread]::CurrentThread.GetApartmentState() -ne 'STA') { $OpenFileDialog.ShowHelp = $true } #workaround for MTA issue not displaying dialog
+		If ($OpenFileDialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $return = ($OpenFileDialog.filename) }
+		Try { $OpenFileDialog.Dispose() } Catch {}
+		Return $return
 	}
 	function MainForm-Startup
 	{
@@ -329,47 +286,59 @@ function Show-MainForm
 		$Global:Config_LogPath = "$Config_RootLogLocation" + "$currentuser.log"
 		If (!(Test-Path $Config_RootLogLocation))
 		{
-			Log -text "Creating the root log location..." -component "MainForm.psf_MainForm-Startup" -type 1
+			Log -text "Creating the root log location..." -component "MainForm_MainForm-Startup" -type 1
 			$Error.Clear()
 			New-Item -Path $Config_RootLogLocation -ItemType directory -Force
 			If ($Error)
 			{
-				Log -text "An error occured while attempting to create the root log location." -component "MainForm.psf_MainForm-Startup" -type 3
-				Log -text "$Error" -component "MainForm.psf_MainForm-Startup" -type 3
-				Log -text "" -component "MainForm.psf_MainForm-Startup" -type 3
+				Log -text "An error occured while attempting to create the root log location." -component "MainForm_MainForm-Startup" -type 3
+				Log -text "$Error" -component "MainForm_MainForm-Startup" -type 3
+				Log -text "" -component "MainForm_MainForm-Startup" -type 3
+			}
+		}
+        	If (!(Test-Path $Config_RootHKCU))
+		{
+			Log -text "Creating first run registry entries..." -component "MainForm_MainForm-Startup" -type 1
+			$Error.Clear()
+			New-Item "$Config_RootHKCU$AppShortName" -Force
+			If ($Error)
+			{
+				Log -text "An error occured while attempting to create the registry tree." -component "MainForm_MainForm-Startup" -type 3
+				Log -text "$Error" -component "MainForm_MainForm-Startup" -type 3
+				Log -text "" -component "MainForm_MainForm-Startup" -type 3
 			}
 		}
 		$Global:Log = @()
-		Log -text "$AppLongName starting..." -component "MainForm.psf_MainForm-Startup" -type 1
-		Log -text "User: $currentuser" -component "MainForm.psf_MainForm-Startup" -type 1
+		Log -text "$AppLongName starting..." -component "MainForm_MainForm-Startup" -type 1
+		Log -text "User: $currentuser" -component "MainForm_MainForm-Startup" -type 1
 		$Global:CurrentExecutable = (Get-WmiObject Win32_Process | Where-Object { $_.handle -eq $pid }).ExecutablePath
-		Log -text "Executable Path: $CurrentExecutable" -component "MainForm.psf_MainForm-Startup" -type 1
+		Log -text "Executable Path: $CurrentExecutable" -component "MainForm_MainForm-Startup" -type 1
 		$Global:CurrentRunningPath = (Get-Item $CurrentExecutable).directory.fullname
-		Log -text "Running Path: $CurrentRunningPath" -component "MainForm.psf_MainForm-Startup" -type 1
+		Log -text "Running Path: $CurrentRunningPath" -component "MainForm_MainForm-Startup" -type 1
 		$Global:CurrentPSVersion = (Get-Item $CurrentExecutable).VersionInfo.ProductVersion
-		Log -text "Running Version: $CurrentPSVersion" -component "MainForm.psf_MainForm-Startup" -type 1
+		Log -text "Running Version: $CurrentPSVersion" -component "MainForm_MainForm-Startup" -type 1
 		$Global:RootDirectory = (Get-Item $CurrentExecutable).Directory.Parent.FullName
-		Log -text "Root Directory: $RootDirectory" -component "MainForm.psf_MainForm-Startup" -type 1
-		Log -text "" -component "MainForm.psf_MainForm-Startup" -type 1
-		Log -text "RunAdminCheck: $RunAdminCheck" -component "MainForm.psf_MainForm-Startup" -type 1
-		Log -text "Silent: $silent" -component "MainForm.psf_MainForm-Startup" -type 1
-		Log -text "OverRideArch: $OverRideArch" -component "MainForm.psf_MainForm-Startup" -type 1
-		Log -text "UpdateCheckVer: $CurrentRunningVersion" -component "MainForm.psf_MainForm-Startup" -type 1
-		Check-ForUpdate
+		Log -text "Root Directory: $RootDirectory" -component "MainForm_MainForm-Startup" -type 1
+		Log -text "" -component "MainForm_MainForm-Startup" -type 1
+		Log -text "RunAdminCheck: $RunAdminCheck" -component "MainForm_MainForm-Startup" -type 1
+		Log -text "Silent: $silent" -component "MainForm_MainForm-Startup" -type 1
+	#	Log -text "OverRideArch: $OverRideArch" -component "MainForm_MainForm-Startup" -type 1
+		Log -text "UpdateCheckVer: $CurrentRunningVersion" -component "MainForm_MainForm-Startup" -type 1
+		Check-ForUpdate -RunManualCheck $false
 		Check-LastRanVersion
-		Build-Config -Config2Load "$AppShortName"
-	
+		Build-Config -Config2Load $AppShortName
+
 		If ($RunAdminCheck -eq $true)
 		{
-			Log -text "This app requires admin rights to run. Performing admin rights detection..." -component "MainForm.psf_MainForm-Startup" -type 1
+			Log -text "This app requires admin rights to run. Performing admin rights detection..." -component "MainForm_MainForm-Startup" -type 1
 			If (RunAsAdmin-Check -eq $true)
 			{
-				Log -text "Admin rights detected." -component "MainForm.psf_MainForm-Startup" -type 1
+				Log -text "Admin rights detected." -component "MainForm_MainForm-Startup" -type 1
 				return, $true
 			}
 			else
 			{
-				Log -text "Tool is not running as an admin." -component "MainForm.psf_MainForm-Startup" -type 3
+				Log -text "Tool is not running as an admin." -component "MainForm_MainForm-Startup" -type 3
 				If (!($silent -eq $true))
 				{
 					Message-Box -text "You're not running $AppLongName as an Administrator. You need to re-launch it as an Administrator." -title "Whoa there..."
@@ -382,6 +351,7 @@ function Show-MainForm
 			return, $true
 		}
 	}
+
 	function Get-LockedConfigItems
 	{
 		return, @('EnableLogging', 'CoreFunctions', 'AboutInfoImg', 'ProdVersion', 'OptionalVersion', 'UniUpdateProdVersion', 'UniUpdateNetRoot', 'RootHKCU', 'NetSourceDir')
@@ -398,17 +368,23 @@ function Show-MainForm
 	}
 	function Check-ForUpdate
 	{
+        param ([bool]$RunManualCheck)
+        
 		$match = Select-String "$Config_NetSourceDir$AppShortName\Toolbox.ps1" -pattern '$Global:CurrentRunningVersion=' -SimpleMatch
 		$CurrentSourceVersion = $Match.line.Split("=")[1]
 
 		If ($CurrentSourceVersion -gt $CurrentRunningVersion)
-        	{
-            		Message-Box -title "Version Check" -text "New version available. Updating script"
-            		Copy-Item  "$Config_NetSourceDir$AppShortName\Toolbox.ps1" -Destination $PSScriptRoot -force
+        {
+           	Message-Box -title "Version Check" -text "New version available. Updating script..."
+        	Copy-Item  "$Config_NetSourceDir$AppShortName\Toolbox.ps1" -Destination $PSScriptRoot -force
 			#reload the script and exit the currently running version
 			Invoke-Expression -Command $PSCommandPath
 			[Environment]::Exit(1)
-        	}
+        }
+        Else
+        {
+           if ($RunManualCheck -eq $true) { Message-Box -title "No New Version Available" -text "You are using the most recent version." }
+        }
 	}
 	function Check-LastRanVersion
 	{
@@ -427,32 +403,32 @@ function Show-MainForm
 			Set-ItemProperty -Path "$Config_RootHKCU$AppShortName" -Name LastRanVer -Value "$CurrentRunningVersion"
 			If ($Error)
 			{
-				Log -text "An error occured while attempting to update the LastRanVer attribute for the tool in the registry." -component "MainForm.psf_Check-LastRanVersion" -type 3
-				Log -text "$Error" -component "MainForm.psf_Check-LastRanVersion" -type 3
-				Log -text "" -component "MainForm.psf_Check-LastRanVersion" -type 3
+				Log -text "An error occured while attempting to update the LastRanVer attribute for the tool in the registry." -component "MainForm_Check-LastRanVersion" -type 3
+				Log -text "$Error" -component "MainForm_Check-LastRanVersion" -type 3
+				Log -text "" -component "MainForm_Check-LastRanVersion" -type 3
 				Message-Box -title "ERROR" -text "An error occured. See log for details."
 			}
 			Else
 			{
-				Debug-Log -text "Successfully updated the LastRanVer attribute." -component "MainForm.psf_Check-LastRanVersion" -type 4
+				Log -text "Successfully updated the LastRanVer attribute." -component "MainForm_Check-LastRanVersion" -type 4
 			}
 		}
 		Else
 		{
 			$Error.Clear()
-			New-ItemProperty -Path "$Config_RootHKCU$AppShortName" -Name LastRanVer -PropertyType String -Value "$CurrentRunningVersion"
+			New-ItemProperty -Path "$Config_RootHKCU$AppShortName" -Name LastRanVer -PropertyType String -Value "$CurrentRunningVersion" -force
 			If ($Error)
 			{
-				Log -text "An error occured while attempting to create the LastRanVer attribute for the tool in the registry." -component "MainForm.psf_Check-LastRanVersion" -type 3
-				Log -text "$Error" -component "MainForm.psf_Check-LastRanVersion" -type 3
-				Log -text "" -component "MainForm.psf_Check-LastRanVersion" -type 3
+				Log -text "An error occured while attempting to create the LastRanVer attribute for the tool in the registry." -component "MainForm_Check-LastRanVersion" -type 3
+				Log -text "$Error" -component "MainForm_Check-LastRanVersion" -type 3
+				Log -text "" -component "MainForm_Check-LastRanVersion" -type 3
 				Message-Box -title "ERROR" -text "An error occured. See log for details."
 			}
 			Else
 			{
-				Debug-Log -text "Successfully created the LastRanVer attribute" -component "MainForm.psf_Check-LastRanVersion" -type 4
+				Log -text "Successfully created the LastRanVer attribute" -component "MainForm_Check-LastRanVersion" -type 4
 			}
-		}
+    	}
 	}
 	function Toggle-DebugMode
 	{
@@ -464,15 +440,15 @@ function Show-MainForm
 				Set-ItemProperty -Path "$Config_RootHKCU$AppShortName" -Name DebugMode -Value "False"
 				If ($Error)
 				{
-					Log -text "An error occured while trying to disable Debug Mode." -component "MainForm.psf_Toggle-DebugMode" -type 3
-					Log -text "$Error" -component "MainForm.psf_Toggle-DebugMode" -type 3
-					Log -text "" -component "MainForm.psf_Toggle-DebugMode" -type 3
-					Show-MessageBox_psf -title "ERROR" -text "An error occured while attempting to disable Debug Mode.`n`nSee log for additional details." -boxtype 1 -image 5 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
+					Log -text "An error occured while trying to disable Debug Mode." -component "MainForm_Toggle-DebugMode" -type 3
+					Log -text "$Error" -component "MainForm_Toggle-DebugMode" -type 3
+					Log -text "" -component "MainForm_Toggle-DebugMode" -type 3
+					Show-MessageBox -title "ERROR" -text "An error occured while attempting to disable Debug Mode.`n`nSee log for additional details." -boxtype 1 -image 5 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
 					return, $false
 				}
 				Else
 				{
-					Show-MessageBox_psf -title "" -text "Debug Mode Disabled" -autoclose 5 -boxtype 1 -image 2 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
+					Show-MessageBox -title "" -text "Debug Mode Disabled" -autoclose 5 -boxtype 1 -image 2 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
 					$Global:Config_DebugMode = $false
 					return, $true
 				}
@@ -483,15 +459,15 @@ function Show-MainForm
 				New-ItemProperty -Path "$Config_RootHKCU$AppShortName" -Name DebugMode -PropertyType String -Value "False"
 				If ($Error)
 				{
-					Log -text "An error occured while trying to disable Debug Mode." -component "MainForm.psf_Toggle-DebugMode" -type 3
-					Log -text "$Error" -component "MainForm.psf_Toggle-DebugMode" -type 3
-					Log -text "" -component "MainForm.psf_Toggle-DebugMode" -type 3
-					Show-MessageBox_psf -title "ERROR" -text "An error occured while attempting to disable Debug Mode.`n`nSee log for additional details." -boxtype 1 -image 5 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
+					Log -text "An error occured while trying to disable Debug Mode." -component "MainForm_Toggle-DebugMode" -type 3
+					Log -text "$Error" -component "MainForm_Toggle-DebugMode" -type 3
+					Log -text "" -component "MainForm_Toggle-DebugMode" -type 3
+					Show-MessageBox -title "ERROR" -text "An error occured while attempting to disable Debug Mode.`n`nSee log for additional details." -boxtype 1 -image 5 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
 					return, $false
 				}
 				Else
 				{
-					Show-MessageBox_psf -title "" -text "Debug Mode Disabled" -autoclose 5 -boxtype 1 -image 2 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
+					Show-MessageBox -title "" -text "Debug Mode Disabled" -autoclose 5 -boxtype 1 -image 2 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
 					$Global:Config_DebugMode = $false
 					return, $true
 				}
@@ -505,15 +481,15 @@ function Show-MainForm
 				Set-ItemProperty -Path "$Config_RootHKCU$AppShortName" -Name DebugMode -Value "True"
 				If ($Error)
 				{
-					Log -text "An error occured while trying to enable Debug Mode." -component "MainForm.psf_Toggle-DebugMode" -type 3
-					Log -text "$Error" -component "MainForm.psf_Toggle-DebugMode" -type 3
-					Log -text "" -component "MainForm.psf_Toggle-DebugMode" -type 3
-					Show-MessageBox_psf -title "ERROR" -text "An error occured while attempting to enable Debug Mode.`n`nSee log for additional details." -boxtype 1 -image 5 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
+					Log -text "An error occured while trying to enable Debug Mode." -component "MainForm_Toggle-DebugMode" -type 3
+					Log -text "$Error" -component "MainForm_Toggle-DebugMode" -type 3
+					Log -text "" -component "MainForm_Toggle-DebugMode" -type 3
+					Show-MessageBox -title "ERROR" -text "An error occured while attempting to enable Debug Mode.`n`nSee log for additional details." -boxtype 1 -image 5 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
 					return, $false
 				}
 				Else
 				{
-					Show-MessageBox_psf -title "" -text "Debug Mode Enabled" -autoclose 5 -boxtype 1 -image 2 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
+					Show-MessageBox -title "" -text "Debug Mode Enabled" -autoclose 5 -boxtype 1 -image 2 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
 					$Global:Config_DebugMode = $true
 					return, $true
 				}
@@ -524,15 +500,15 @@ function Show-MainForm
 				New-ItemProperty -Path "$Config_RootHKCU$AppShortName" -Name DebugMode -PropertyType String -Value "True"
 				If ($Error)
 				{
-					Log -text "An error occured while trying to enable Debug Mode." -component "MainForm.psf_Toggle-DebugMode" -type 3
-					Log -text "$Error" -component "MainForm.psf_Toggle-DebugMode" -type 3
-					Log -text "" -component "MainForm.psf_Toggle-DebugMode" -type 3
-					Show-MessageBox_psf -title "ERROR" -text "An error occured while attempting to enable Debug Mode.`n`nSee log for additional details." -boxtype 1 -image 5 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
+					Log -text "An error occured while trying to enable Debug Mode." -component "MainForm_Toggle-DebugMode" -type 3
+					Log -text "$Error" -component "MainForm_Toggle-DebugMode" -type 3
+					Log -text "" -component "MainForm_Toggle-DebugMode" -type 3
+					Show-MessageBox -title "ERROR" -text "An error occured while attempting to enable Debug Mode.`n`nSee log for additional details." -boxtype 1 -image 5 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
 					return, $false
 				}
 				Else
 				{
-					Show-MessageBox_psf -title "" -text "Debug Mode Enabled" -autoclose 5 -boxtype 1 -image 2 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
+					Show-MessageBox -title "" -text "Debug Mode Enabled" -autoclose 5 -boxtype 1 -image 2 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
 					$Global:Config_DebugMode = $true
 					return, $true
 				}
@@ -550,15 +526,15 @@ function Show-MainForm
 				Set-ItemProperty -Path "$Config_RootHKCU$AppShortName" -Name ShowToolTip -Value "True"
 				If ($Error)
 				{
-					Log -text "An error occured while trying to enable Tool Tips." -component "MainForm.psf_Toggle-ToolTips" -type 3
-					Log -text "$Error" -component "MainForm.psf_Toggle-ToolTips" -type 3
-					Log -text "" -component "MainForm.psf_Toggle-ToolTips" -type 3
-					Show-MessageBox_psf -title "ERROR" -text "An error occured while attempting to enable Tool Tips.`n`nSee log for additional details." -boxtype 1 -image 5 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
+					Log -text "An error occured while trying to enable Tool Tips." -component "MainForm_Toggle-ToolTips" -type 3
+					Log -text "$Error" -component "MainForm_Toggle-ToolTips" -type 3
+					Log -text "" -component "MainForm_Toggle-ToolTips" -type 3
+					Show-MessageBox -title "ERROR" -text "An error occured while attempting to enable Tool Tips.`n`nSee log for additional details." -boxtype 1 -image 5 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
 					return, $false
 				}
 				Else
 				{
-					Show-MessageBox_psf -title "" -text "Tool Tips Enabled" -autoclose 5 -boxtype 1 -image 2 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
+					Show-MessageBox -title "" -text "Tool Tips Enabled" -autoclose 5 -boxtype 1 -image 2 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
 					$Global:Config_ShowTooltip = $true
 					return, $true
 				}
@@ -569,15 +545,15 @@ function Show-MainForm
 				New-ItemProperty -Path "$Config_RootHKCU$AppShortName" -Name ShowToolTip -PropertyType String -Value "True"
 				If ($Error)
 				{
-					Log -text "An error occured while trying to enable Tool Tips." -component "MainForm.psf_Toggle-ToolTips" -type 3
-					Log -text "$Error" -component "MainForm.psf_Toggle-ToolTips" -type 3
-					Log -text "" -component "MainForm.psf_Toggle-ToolTips" -type 3
-					Show-MessageBox_psf -title "ERROR" -text "An error occured while attempting to enable Tool Tips.`n`nSee log for additional details." -boxtype 1 -image 5 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
+					Log -text "An error occured while trying to enable Tool Tips." -component "MainForm_Toggle-ToolTips" -type 3
+					Log -text "$Error" -component "MainForm_Toggle-ToolTips" -type 3
+					Log -text "" -component "MainForm_Toggle-ToolTips" -type 3
+					Show-MessageBox -title "ERROR" -text "An error occured while attempting to enable Tool Tips.`n`nSee log for additional details." -boxtype 1 -image 5 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
 					return, $false
 				}
 				Else
 				{
-					Show-MessageBox_psf -title "" -text "Tool Tips Enabled" -autoclose 5 -boxtype 1 -image 2 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
+					Show-MessageBox -title "" -text "Tool Tips Enabled" -autoclose 5 -boxtype 1 -image 2 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
 					$Global:Config_ShowTooltip = $true
 					return, $true
 				}
@@ -592,15 +568,15 @@ function Show-MainForm
 				Set-ItemProperty -Path "$Config_RootHKCU$AppShortName" -Name ShowToolTip -Value "False"
 				If ($Error)
 				{
-					Log -text "An error occured while trying to disable Tool Tips." -component "MainForm.psf_Toggle-ToolTips" -type 3
-					Log -text "$Error" -component "MainForm.psf_Toggle-ToolTips" -type 3
-					Log -text "" -component "MainForm.psf_Toggle-ToolTips" -type 3
-					Show-MessageBox_psf -title "ERROR" -text "An error occured while attempting to disable Tool Tips.`n`nSee log for additional details." -boxtype 1 -image 5 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
+					Log -text "An error occured while trying to disable Tool Tips." -component "MainForm_Toggle-ToolTips" -type 3
+					Log -text "$Error" -component "MainForm_Toggle-ToolTips" -type 3
+					Log -text "" -component "MainForm_Toggle-ToolTips" -type 3
+					Show-MessageBox -title "ERROR" -text "An error occured while attempting to disable Tool Tips.`n`nSee log for additional details." -boxtype 1 -image 5 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
 					return, $false
 				}
 				Else
 				{
-					Show-MessageBox_psf -title "" -text "Tool Tips Disabled" -autoclose 5 -boxtype 1 -image 2 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
+					Show-MessageBox -title "" -text "Tool Tips Disabled" -autoclose 5 -boxtype 1 -image 2 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
 					$Global:Config_ShowTooltip = $false
 					return, $true
 				}
@@ -611,15 +587,15 @@ function Show-MainForm
 				New-ItemProperty -Path "$Config_RootHKCU$AppShortName" -Name ShowToolTip -PropertyType String -Value "False"
 				If ($Error)
 				{
-					Log -text "An error occured while trying to disable Tool Tips." -component "MainForm.psf_Toggle-ToolTips" -type 3
-					Log -text "$Error" -component "MainForm.psf_Toggle-ToolTips" -type 3
-					Log -text "" -component "MainForm.psf_Toggle-ToolTips" -type 3
-					Show-MessageBox_psf -title "ERROR" -text "An error occured while attempting to disable Tool Tips.`n`nSee log for additional details." -boxtype 1 -image 5 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
+					Log -text "An error occured while trying to disable Tool Tips." -component "MainForm_Toggle-ToolTips" -type 3
+					Log -text "$Error" -component "MainForm_Toggle-ToolTips" -type 3
+					Log -text "" -component "MainForm_Toggle-ToolTips" -type 3
+					Show-MessageBox -title "ERROR" -text "An error occured while attempting to disable Tool Tips.`n`nSee log for additional details." -boxtype 1 -image 5 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
 					return, $false
 				}
 				Else
 				{
-					Show-MessageBox_psf -title "" -text "Tool Tips Disabled" -autoclose 5 -boxtype 1 -image 2 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
+					Show-MessageBox -title "" -text "Tool Tips Disabled" -autoclose 5 -boxtype 1 -image 2 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
 					$Global:Config_ShowTooltip = $false
 					return, $true
 				}
@@ -634,40 +610,40 @@ function Show-MainForm
 			[int]$formHeight,
 			[int]$formWidth
 		)
-		Debug-Log -text "Checking Screen Location..." -component "MainForm.psf_Check-ScreenLocation" -type 4
+		Log -text "Checking Screen Location..." -component "MainForm_Check-ScreenLocation" -type 4
 		If ($x -lt 0)
 		{
-			Debug-Log -text "The location point for X is less than 0. Setting X to 0..." -component "MainForm.psf_Check-ScreenLocation" -type 4
+			Log -text "The location point for X is less than 0. Setting X to 0..." -component "MainForm_Check-ScreenLocation" -type 4
 			$x = 0
 		}
 		If ($y -lt 0)
 		{
-			Debug-Log -text "The location point for Y is less than 0. Setting Y to 0..." -component "MainForm.psf_Check-ScreenLocation" -type 4
+			Log -text "The location point for Y is less than 0. Setting Y to 0..." -component "MainForm_Check-ScreenLocation" -type 4
 			$y = 0
 		}
-		Debug-Log -text "Gathering screen statistics..." -component "MainForm.psf_Check-ScreenLocation" -type 4
+		Log -text "Gathering screen statistics..." -component "MainForm_Check-ScreenLocation" -type 4
 		$AllScreens = [System.Windows.Forms.Screen]::AllScreens
-		Debug-Log -text "Processing screens..." -component "MainForm.psf_Check-ScreenLocation" -type 4
+		Log -text "Processing screens..." -component "MainForm_Check-ScreenLocation" -type 4
 		foreach ($Screen in $AllScreens)
 		{
-			Debug-Log -text "Processing screen: $($Screen.DeviceName)" -component "MainForm.psf_Check-ScreenLocation" -type 4
+			Log -text "Processing screen: $($Screen.DeviceName)" -component "MainForm_Check-ScreenLocation" -type 4
 			$WL = $Screen.WorkingArea.X #Width Low Range
 			$WH = $Screen.WorkingArea.X + $Screen.WorkingArea.Width #Width High Range
 			$HL = $Screen.WorkingArea.Y #Heigh Low Range
 			$HH = $Screen.WorkingArea.Y + $Screen.WorkingArea.Height #Heigh High Range
 			If ((($x -ge $WL) -and ($x -le $WH)) -and (($y -ge $HL) -and ($y -le $HH)))
 			{
-				Debug-Log -text "The current location is primarily on $($Screen.DeviceName)." -component "MainForm.psf_Check-ScreenLocation" -type 4
+				Log -text "The current location is primarily on $($Screen.DeviceName)." -component "MainForm_Check-ScreenLocation" -type 4
 				$WorkingScreen = $Screen
 			}
 			Else
 			{
-				Debug-Log -text "It does not appear that the location is on this screen." -component "MainForm.psf_Check-ScreenLocation" -type 4
+				Log -text "It does not appear that the location is on this screen." -component "MainForm_Check-ScreenLocation" -type 4
 			}
 		}
 		If (!($WorkingScreen))
 		{
-			Log -text "The location could not be found on a screen! Returning likely bad location points anyways..." -component "MainForm.psf_Check-ScreenLocation" -type 1
+			Log -text "The location could not be found on a screen! Returning likely bad location points anyways..." -component "MainForm_Check-ScreenLocation" -type 1
 			$obj = New-Object PSObject
 			Add-Member -InputObject $obj -MemberType NoteProperty -Name X -Value $x
 			Add-Member -InputObject $obj -MemberType NoteProperty -Name Y -Value $y
@@ -675,27 +651,27 @@ function Show-MainForm
 		}
 		Else
 		{
-			Debug-Log -text "Checking to make sure that the form isn't getting cut off..." -component "MainForm.psf_Check-ScreenLocation" -type 4
+			Log -text "Checking to make sure that the form isn't getting cut off..." -component "MainForm_Check-ScreenLocation" -type 4
 			$xx = $x + $formWidth
 			$ScreenMaxX = $WorkingScreen.WorkingArea.X + $WorkingScreen.WorkingArea.Width
 			If ($xx -le $ScreenMaxX)
 			{
-				Debug-Log -text "The X axis appears to not be getting cut off." -component "MainForm.psf_Check-ScreenLocation" -type 4
+				Log -text "The X axis appears to not be getting cut off." -component "MainForm_Check-ScreenLocation" -type 4
 			}
 			Else
 			{
-				Debug-Log -text "The X axis appears to be getting cut off. Attempting to adjust..." -component "MainForm.psf_Check-ScreenLocation" -type 4
+				Log -text "The X axis appears to be getting cut off. Attempting to adjust..." -component "MainForm_Check-ScreenLocation" -type 4
 				$x = $x - ($xx - $ScreenMaxX)
 			}
 			$yy = $y + $formHeight
 			$ScreenMaxY = $WorkingScreen.WorkingArea.Y + $WorkingScreen.WorkingArea.Height
 			If ($yy -le $ScreenMaxY)
 			{
-				Debug-Log -text "The Y axis appears to not be getting cut off." -component "MainForm.psf_Check-ScreenLocation" -type 4
+				Log -text "The Y axis appears to not be getting cut off." -component "MainForm_Check-ScreenLocation" -type 4
 			}
 			Else
 			{
-				Debug-Log -text "The Y axis appears to be getting cut off. Attempting to adjust..." -component "MainForm.psf_Check-ScreenLocation" -type 4
+				Log -text "The Y axis appears to be getting cut off. Attempting to adjust..." -component "MainForm_Check-ScreenLocation" -type 4
 				$y = $y - ($yy - $ScreenMaxY)
 			}
 			$obj = New-Object PSObject
@@ -706,7 +682,7 @@ function Show-MainForm
 	}
 	function Initial-Load
 	{
-		Debug-Log -text "Running Initial-Load..." -Component "MainForm.psf_Initial-Load" -Type 4
+		Log -text "Running Initial-Load..." -Component "MainForm_Initial-Load" -Type 4
 		If ($Config_DebugMode -eq $true)
 		{
 			$setDebugModeToolStripMenuItem.Text = "Disable"
@@ -734,33 +710,33 @@ function Show-MainForm
 		{
 			If (((Get-ItemProperty -Path "$Config_RootHKCU$AppShortName\").LastKnownLocation) -and ($Config_UseLastKnownSizeLocation -eq $true))
 			{
-				Debug-Log -text "Last known location record exists and is set to be used. Using last known location..." -Component "MainForm.psf_Initial-Load" -Type 4
+				Log -text "Last known location record exists and is set to be used. Using last known location..." -Component "MainForm_Initial-Load" -Type 4
 				$Location = (Get-ItemProperty -Path "$Config_RootHKCU$AppShortName\").LastKnownLocation
 				$FoundLocation = $true
 			}
 			If (((Get-ItemProperty -Path "$Config_RootHKCU$AppShortName\").LastKnownSize) -and ($Config_UseLastKnownSizeLocation -eq $true))
 			{
-				Debug-Log -text "Last known size record exists and is set to be used. Using last known location..." -Component "MainForm.psf_Initial-Load" -Type 4
+				Log -text "Last known size record exists and is set to be used. Using last known size..." -Component "MainForm_Initial-Load" -Type 4
 				$Size = (Get-ItemProperty -Path "$Config_RootHKCU$AppShortName\").LastKnownSize
 				$FoundSize = $true
 			}
 			If (($FoundLocation -eq $true) -and ($FoundSize -eq $true))
 			{
-				Debug-Log -text "Found both an existing location and size. Checking to ensure the location is valid..." -Component "MainForm.psf_Initial-Load" -Type 4
-				If (([System.Windows.Forms.Screen]::AllScreens).WorkingArea.IntersectsWith(([System.Drawing.Rectangle]::new([int]$Location.Split('_')[0], [int]$Location.Split('_')[1], [int]$Size.Split('_')[1], [int]$Size.Split('_')[0]))))
+				Log -text "Found both an existing location and size. Checking to ensure the location is valid..." -Component "MainForm_Initial-Load" -Type 4
+				If (([System.Windows.Forms.Screen]::AllScreens | select -expandproperty workingarea).IntersectsWith(([System.Drawing.Rectangle]::FromLTRB([int]$Location.Split('_')[0], [int]$Location.Split('_')[1], [int]$Size.Split('_')[1], [int]$Size.Split('_')[0]))))
 				{
-					Debug-Log -text "All screen working area check identified that the saved form location/size is within the boundary of the screens on the system. Restoring last known location and size..." -Component "MainForm.psf_Initial-Load" -Type 4
+					Log -text "All screen working area check identified that the saved form location/size is within the boundary of the screens on the system. Restoring last known location and size..." -Component "MainForm_Initial-Load" -Type 4
 					$MainForm.Location = (New-Object System.Drawing.Size([int]$Location.Split('_')[0], [int]$Location.Split('_')[1]))
 					$MainForm.Size = (New-Object System.Drawing.Size([int]$Size.Split('_')[1], [int]$Size.Split('_')[0]))
 				}
 				Else
 				{
-					Log -text "A screen working area check determined that the form is off screen. Not restoring the last known location and size." -Component "MainForm.psf_Initial-Load" -Type 1
+					Log -text "A screen working area check determined that the form is off screen. Not restoring the last known location and size." -Component "MainForm_Initial-Load" -Type 1
 				}
 			}
 			Else
 			{
-				Debug-Log -text "Failed to locate an existing location or size." -Component "MainForm.psf_Initial-Load" -Type 3
+				Log -text "Failed to locate an existing location or size." -Component "MainForm_Initial-Load" -Type 3
 			}
 		}
 
@@ -769,7 +745,7 @@ function Show-MainForm
 	}
 	function Load-Apps
 	{
-		Debug-Log -text "Creating EXE Table..." -Component "MainForm.psf_Load-Apps" -Type 4
+		Log -text "Creating EXE Table..." -Component "MainForm_Load-Apps" -Type 4
 		$Script:EXETable = New-Object System.Data.DataTable
 		$Script:EXETable.Columns.Add((New-Object System.Data.DataColumn "Name", ([string])))
 		$Script:EXETable.Columns.Add((New-Object System.Data.DataColumn "LocalPath", ([string])))
@@ -785,32 +761,32 @@ function Show-MainForm
 		$Script:EXETable.Columns.Add((New-Object System.Data.DataColumn "IconPath", ([string])))
 		$Script:EXETable.Columns.Add((New-Object System.Data.DataColumn "AppN", ([string])))
 		$Script:EXETable.Columns.Add((New-Object System.Data.DataColumn "ArchSupp", ([string])))
-		Debug-Log -text "Creating ImageList..." -Component "MainForm.psf_Load-Apps" -Type 4
+		Log -text "Creating ImageList..." -Component "MainForm_Load-Apps" -Type 4
 		$ImageIndexNum = 0
 		$Script:ImageList = New-Object System.Windows.Forms.ImageList
 		$System_Drawing_Size = New-Object System.Drawing.Size
 		$System_Drawing_Size.Width = 32
 		$System_Drawing_Size.Height = 32
 		$Script:ImageList.ImageSize = $System_Drawing_Size
-		Debug-Log -text "Checking to see if there are any custom tools to add..." -Component "MainForm.psf_Load-Apps" -Type 4
+		Log -text "Checking to see if there are any custom tools to add..." -Component "MainForm_Load-Apps" -Type 4
 		If ((Test-Path -Path "$Config_RootHKCU$AppShortName\CustomAdd\"))
 		{
-			Debug-Log -text "Processing custom tools..." -Component "MainForm.psf_Load-Apps" -Type 4
+			Log -text "Processing custom tools..." -Component "MainForm_Load-Apps" -Type 4
 			foreach ($CustomAdd in (Get-ChildItem -Path "$Config_RootHKCU$AppShortName\CustomAdd\"))
 			{
-				Debug-Log -text "Processing Custom Add tool `"$($CustomAdd.Name)`"" -Component "MainForm.psf_Load-Apps" -Type 4
+				Log -text "Processing Custom Add tool `"$($CustomAdd.Name)`"" -Component "MainForm_Load-Apps" -Type 4
 				$Error.Clear()
 				$Properties = Get-ItemProperty -Path $CustomAdd.Name.Replace('HKEY_CURRENT_USER', 'HKCU:')
 				If ($Error)
 				{
-					Log -text "An error occured while attempting to obtain the properties of the custom tool." -Component "MainForm.psf_Load-Apps" -Type 3
-					Log -text "$Error" -Component "MainForm.psf_Load-Apps" -Type 3
-					Log -text "" -Component "MainForm.psf_Load-Apps" -Type 3
-					Show-MessageBox_psf -title "ERROR" -text "An error was encountered while processing the custom tool: $($CustomAdd.Name).`n`nIt will not be added. See log for additional details." -boxtype 1 -image 5 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
+					Log -text "An error occured while attempting to obtain the properties of the custom tool." -Component "MainForm_Load-Apps" -Type 3
+					Log -text "$Error" -Component "MainForm_Load-Apps" -Type 3
+					Log -text "" -Component "MainForm_Load-Apps" -Type 3
+					Show-MessageBox -title "ERROR" -text "An error was encountered while processing the custom tool: $($CustomAdd.Name).`n`nIt will not be added. See log for additional details." -boxtype 1 -image 5 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
 				}
 				Else
 				{
-					Debug-Log -text "Successfully obtained the properties. Processing add..." -Component "MainForm.psf_Load-Apps" -Type 4
+					Log -text "Successfully obtained the properties. Processing add..." -Component "MainForm_Load-Apps" -Type 4
 					$row = $EXETable.NewRow()
 					$row."CustomAddRegPath" = $CustomAdd.Name.Replace('HKEY_CURRENT_USER', 'HKCU:')
 					$row."Name" = $Properties.Name
@@ -823,19 +799,19 @@ function Show-MainForm
 					{
 						$row."CustomAddArgs" = $Properties.Args
 					}
-					Debug-Log -text "Extracting icon image..." -Component "MainForm.psf_Load-Apps" -Type 4
+					Log -text "Extracting icon image..." -Component "MainForm_Load-Apps" -Type 4
 					$filename = (Get-ItemProperty -Path $($row."LocalPath")).BaseName
-					Debug-Log -text "FileName: $filename" -Component "MainForm.psf_Load-Apps" -Type 4
+					Log -text "FileName: $filename" -Component "MainForm_Load-Apps" -Type 4
 					If (($Properties.IconPath))
 					{
-						Debug-Log -text "Custom icon path provided." -Component "MainForm.psf_Load-Apps" -Type 4
+						Log -text "Custom icon path provided." -Component "MainForm_Load-Apps" -Type 4
 						$Error.Clear()
 						$ImageList.Images.Add("$filename", ([Drawing.Icon]::ExtractAssociatedIcon("$($Properties.IconPath)").ToBitmap()))
 						If ($Error)
 						{
-							Log -text "An error occured while attempting to extract the icon and add it to the ImageList." -Component "MainForm.psf_Load-Apps" -Type 3
-							Log -text "$Error" -Component "MainForm.psf_Load-Apps" -Type 3
-							Log -text "" -Component "MainForm.psf_Load-Apps" -Type 3
+							Log -text "An error occured while attempting to extract the icon and add it to the ImageList." -Component "MainForm_Load-Apps" -Type 3
+							Log -text "$Error" -Component "MainForm_Load-Apps" -Type 3
+							Log -text "" -Component "MainForm_Load-Apps" -Type 3
 						}
 						Else
 						{
@@ -850,9 +826,9 @@ function Show-MainForm
 						$ImageList.Images.Add("$filename", ([Drawing.Icon]::ExtractAssociatedIcon("$($row."LocalPath")").ToBitmap()))
 						If ($Error)
 						{
-							Log -text "An error occured while attempting to extract the icon and add it to the ImageList." -Component "MainForm.psf_Load-Apps" -Type 3
-							Log -text "$Error" -Component "MainForm.psf_Load-Apps" -Type 3
-							Log -text "" -Component "MainForm.psf_Load-Apps" -Type 3
+							Log -text "An error occured while attempting to extract the icon and add it to the ImageList." -Component "MainForm_Load-Apps" -Type 3
+							Log -text "$Error" -Component "MainForm_Load-Apps" -Type 3
+							Log -text "" -Component "MainForm_Load-Apps" -Type 3
 						}
 						Else
 						{
@@ -861,26 +837,26 @@ function Show-MainForm
 						}
 						$row."IconPath" = "$($row."LocalPath")"
 					}
-					Debug-Log -text "Finished with adding custom tool." -Component "MainForm.psf_Load-Apps" -Type 4
+					Log -text "Finished with adding custom tool." -Component "MainForm_Load-Apps" -Type 4
 					$script:EXETable.Rows.Add($row)
 				}
 			}
 		}
 		Else
 		{
-			Debug-Log -text "No custom tools found." -Component "MainForm.psf_Load-Apps" -Type 4
+			Log -text "No custom tools found." -Component "MainForm_Load-Apps" -Type 4
 		}
 	}
 	function Populate-ListView
 	{
 		$listview1.LargeImageList = $ImageList
-		Debug-Log -text "Clearing listview..." -Component "MainForm.psf_Populate-ListView" -Type 4
+		Log -text "Clearing listview..." -Component "MainForm_Populate-ListView" -Type 4
 		$listview1.Items.Clear()
 		$itemNum = 0
-		Debug-Log -text "Populating listview..." -Component "MainForm.psf_Populate-ListView" -Type 4
+		Log -text "Populating listview..." -Component "MainForm_Populate-ListView" -Type 4
 		foreach ($Tool in ($EXETable | Where-Object { $_.IsInstalled -eq $true }))
 		{
-			Debug-Log -text "Processing tool: $($Tool.Name)" -Component "MainForm.psf_Populate-ListView" -Type 4
+			Log -text "Processing tool: $($Tool.Name)" -Component "MainForm_Populate-ListView" -Type 4
 			$listviewItem = New-Object System.Windows.Forms.ListViewItem
 			$listviewItem.Name = $Tool.Name
 			$listviewItem.Text = $Tool.Name
@@ -892,47 +868,47 @@ function Show-MainForm
 	}
 	function Launch-App
 	{
-		Debug-Log -text "Processing Launch-App..." -Component "MainForm.psf_Launch-App" -Type 4
+		Log -text "Processing Launch-App..." -Component "MainForm_Launch-App" -Type 4
 		If (($EXETable | Where-Object { $_.Name -eq "$($listview1.SelectedItems[0].Name)" }).CustomAddArgs.GetType().Name -eq "DBNull")
 		{
 			If ((ExecutionSecurityCheck -ExecutedFile "$($listview1.SelectedItems[0].Tag)") -eq $true)
 			{
-				Debug-Log -text "Launching tool without Args..." -Component "MainForm.psf_Launch-App" -Type 4
+				Log -text "Launching tool without Args..." -Component "MainForm_Launch-App" -Type 4
 				$Error.Clear()
 				Start-Process -FilePath "$($listview1.SelectedItems[0].Tag)"
 				If ($Error)
 				{
-					Log -text "An error occured while attempting to launch the process." -Component "MainForm.psf_Launch-App" -Type 3
-					Log -text "$Error" -Component "MainForm.psf_Launch-App" -Type 3
-					Log -text "" -Component "MainForm.psf_Launch-App" -Type 3
-					Show-MessageBox_psf -title "ERROR" -text "An error occured.`n`nSee log for additional details." -boxtype 1 -image 5 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
+					Log -text "An error occured while attempting to launch the process." -Component "MainForm_Launch-App" -Type 3
+					Log -text "$Error" -Component "MainForm_Launch-App" -Type 3
+					Log -text "" -Component "MainForm_Launch-App" -Type 3
+					Show-MessageBox -title "ERROR" -text "An error occured.`n`nSee log for additional details." -boxtype 1 -image 5 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
 				}
 			}
 			Else
 			{
-				Log -text "Execution Security Check failed. Not launching tool." -Component "MainForm.psf_Launch-App" -Type 3
-				Show-MessageBox_psf -title "ERROR" -text "The selected tool failed the Execution Security Check and will not be launched." -boxtype 1 -image 5 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
+				Log -text "Execution Security Check failed. Not launching tool." -Component "MainForm_Launch-App" -Type 3
+				Show-MessageBox -title "ERROR" -text "The selected tool failed the Execution Security Check and will not be launched." -boxtype 1 -image 5 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
 			}
 		}
 		Else
 		{
 			If ((ExecutionSecurityCheck -ExecutedFile "$($($listview1.SelectedItems[0].Tag))" -Arguments "$($(($EXETable | Where-Object { $_.Name -eq "$($listview1.SelectedItems[0].Name)" }).CustomAddArgs))") -eq $true)
 			{
-				Debug-Log -text "Launching tool with Args..." -Component "MainForm.psf_Launch-App" -Type 4
+				Log -text "Launching tool with Args..." -Component "MainForm_Launch-App" -Type 4
 				$Error.Clear()
 				Start-Process -FilePath "$($listview1.SelectedItems[0].Tag)" -ArgumentList "$(($EXETable | Where-Object { $_.Name -eq "$($listview1.SelectedItems[0].Name)" }).CustomAddArgs)"
 				If ($Error)
 				{
-					Log -text "An error occured while attempting to launch the process." -Component "MainForm.psf_Launch-App" -Type 3
-					Log -text "$Error" -Component "MainForm.psf_Launch-App" -Type 3
-					Log -text "" -Component "MainForm.psf_Launch-App" -Type 3
-					Show-MessageBox_psf -title "ERROR" -text "An error occured.`n`nSee log for additional details." -boxtype 1 -image 5 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
+					Log -text "An error occured while attempting to launch the process." -Component "MainForm_Launch-App" -Type 3
+					Log -text "$Error" -Component "MainForm_Launch-App" -Type 3
+					Log -text "" -Component "MainForm_Launch-App" -Type 3
+					Show-MessageBox -title "ERROR" -text "An error occured.`n`nSee log for additional details." -boxtype 1 -image 5 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
 				}
 			}
 			Else
 			{
-				Log -text "Execution Security Check failed. Not launching tool." -Component "MainForm.psf_Launch-App" -Type 3
-				Show-MessageBox_psf -title "ERROR" -text "The selected tool failed the Execution Security Check and will not be launched." -boxtype 1 -image 5 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
+				Log -text "Execution Security Check failed. Not launching tool." -Component "MainForm_Launch-App" -Type 3
+				Show-MessageBox -title "ERROR" -text "The selected tool failed the Execution Security Check and will not be launched." -boxtype 1 -image 5 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
 			}
 		}
 	}
@@ -952,34 +928,34 @@ function Show-MainForm
 			{
 				#no item properties were found so create a default entry
 				$value=$Null
-				$PropertyItem=”(Default)”
-				$RegType=”String”
+				$PropertyItem=â€(Default)â€
+				$RegType=â€Stringâ€
 
 				#create a custom object for each entry and add it the temporary array
 				$data+=New-Object -TypeName PSObject -Property @{
-					“Path”=$item
-					“Name”=$propertyItem
-					“Value”=$value
-					“Type”=$regType
+					â€œPathâ€=$item
+					â€œNameâ€=$propertyItem
+					â€œValueâ€=$value
+					â€œTypeâ€=$regType
 				}
 			}
 
 			else
 			{
 				#enumerate each property getting its name,value and type
-				foreach ($property in $properties) {
-
-					$value=$regItem.GetValue($property,$null,”DoNotExpandEnvironmentNames”)
+				foreach ($property in $properties)
+                {
+					$value=$regItem.GetValue($property,$null,â€DoNotExpandEnvironmentNamesâ€)
 					#get the registry value type
 					$regType=$regItem.GetValueKind($property)
 					$PropertyItem=$property
 
 					#create a custom object for each entry and add it the temporary array
 					$data+=New-Object -TypeName PSObject -Property @{
-						“Path”=$item
-						“Name”=$propertyItem
-						“Value”=$value
-						“Type”=$regType
+						â€œPathâ€=$item
+						â€œNameâ€=$propertyItem
+						â€œValueâ€=$value
+						â€œTypeâ€=$regType
 					}
 				} #foreach
 			} #else
@@ -988,9 +964,9 @@ function Show-MainForm
 		#make sure we got something back and export it
 		if ($data)
 		{
-			Log -text "Creating the settings file..." -component "MainForm.psf_Export-Registry" -type 1
+			Log -text "Creating the settings file..." -component "MainForm_Export-Registry" -type 1
 			$data | Export-CSV -Path "$env:SystemDrive\Users\$env:Username\Desktop\Toolbox_Settings.csv" -noTypeInformation
-			Show-MessageBox_psf -title "EXPORT" -text "Toolbox_Settings.csv file exported to desktop`n`nThis file can be used to import the same settings to another server." -boxtype 1 -image 5 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
+			Show-MessageBox -title "EXPORT" -text "Toolbox_Settings.csv file exported to desktop`n`nThis file can be used to import the same settings to another computer." -boxtype 1 -image 4 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
 		}
 		pop-location
 
@@ -1001,15 +977,17 @@ function Show-MainForm
 		$path = Get-FileName -initialDirectory $env:SystemDrive
 		$data = Import-CSV -Path $path
 
-		if($data){
-			if (!(Test-Path 'HKCU:\SOFTWARE\Atlas\')){New-Item -Path 'HKCU:\SOFTWARE\' -Name 'Atlas'}
-				$data | Foreach {
-				#Write the new entries, creating new keys and overwriting any existing.
-				if (!(Test-Path $_.Path)){
-					New-Item -Path (Split-Path -Parent $_.Path) -Name (Split-Path -Leaf $_.Path)
-				}
-				New-ItemProperty -Path $_.Path -Name $_.Name -Value $_.Value -PropertyType $_.Type -Force -EA Ignore
-			}
+		if($data)
+        {
+			$data | Foreach
+            {
+                #Write the new entries, creating new keys and overwriting any existing.
+                if (!(Test-Path $_.Path))
+                {
+				    New-Item -Path (Split-Path -Parent $_.Path) -Name (Split-Path -Leaf $_.Path)
+                }
+                New-ItemProperty -Path $_.Path -Name $_.Name -Value $_.Value -PropertyType $_.Type -Force -EA Ignore
+            }
 		}
 		pop-location
 		#reload the imported config
@@ -1030,10 +1008,10 @@ function Show-MainForm
 					Set-ItemProperty -Path "$Config_RootHKCU$AppShortName" -Name SnapViewMode -Value "False"
 					If ($Error)
 					{
-						Log -text "An error occured while trying to disable SnapViewMode." -Component "MainForm.psf_Set-SnapViewMode" -Type 3
-						Log -text "$Error" -Component "MainForm.psf_Set-SnapViewMode" -Type 3
-						Log -text "" -Component "MainForm.psf_Set-SnapViewMode" -Type 3
-						Show-MessageBox_psf -title "ERROR" -text "An error occured while attempting to disable SnapViewMode.`n`nSee log for additional details." -boxtype 1 -image 5 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
+						Log -text "An error occured while trying to disable SnapViewMode." -Component "MainForm_Set-SnapViewMode" -Type 3
+						Log -text "$Error" -Component "MainForm_Set-SnapViewMode" -Type 3
+						Log -text "" -Component "MainForm_Set-SnapViewMode" -Type 3
+						Show-MessageBox -title "ERROR" -text "An error occured while attempting to disable SnapViewMode.`n`nSee log for additional details." -boxtype 1 -image 5 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
 					}
 					Else
 					{
@@ -1047,10 +1025,10 @@ function Show-MainForm
 					New-ItemProperty -Path "$Config_RootHKCU$AppShortName" -Name SnapViewMode -PropertyType String -Value "False"
 					If ($Error)
 					{
-						Log -text "An error occured while trying to disable SnapViewMode." -Component "MainForm.psf_Set-SnapViewMode" -Type 3
-						Log -text "$Error" -Component "MainForm.psf_Set-SnapViewMode" -Type 3
-						Log -text "" -Component "MainForm.psf_Set-SnapViewMode" -Type 3
-						Show-MessageBox_psf -title "ERROR" -text "An error occured while attempting to disable SnapViewMode.`n`nSee log for additional details." -boxtype 1 -image 5 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
+						Log -text "An error occured while trying to disable SnapViewMode." -Component "MainForm_Set-SnapViewMode" -Type 3
+						Log -text "$Error" -Component "MainForm_Set-SnapViewMode" -Type 3
+						Log -text "" -Component "MainForm_Set-SnapViewMode" -Type 3
+						Show-MessageBox -title "ERROR" -text "An error occured while attempting to disable SnapViewMode.`n`nSee log for additional details." -boxtype 1 -image 5 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
 					}
 					Else
 					{
@@ -1067,10 +1045,10 @@ function Show-MainForm
 					Set-ItemProperty -Path "$Config_RootHKCU$AppShortName" -Name SnapViewMode -Value "True"
 					If ($Error)
 					{
-						Log -text "An error occured while trying to enable SnapViewMode." -Component "MainForm.psf_Set-SnapViewMode" -Type 3
-						Log -text "$Error" -Component "MainForm.psf_Set-SnapViewMode" -Type 3
-						Log -text "" -Component "MainForm.psf_Set-SnapViewMode" -Type 3
-						Show-MessageBox_psf -title "ERROR" -text "An error occured while attempting to enable SnapViewMode.`n`nSee log for additional details." -boxtype 1 -image 5 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
+						Log -text "An error occured while trying to enable SnapViewMode." -Component "MainForm_Set-SnapViewMode" -Type 3
+						Log -text "$Error" -Component "MainForm_Set-SnapViewMode" -Type 3
+						Log -text "" -Component "MainForm_Set-SnapViewMode" -Type 3
+						Show-MessageBox -title "ERROR" -text "An error occured while attempting to enable SnapViewMode.`n`nSee log for additional details." -boxtype 1 -image 5 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
 					}
 					Else
 					{
@@ -1084,10 +1062,10 @@ function Show-MainForm
 					New-ItemProperty -Path "$Config_RootHKCU$AppShortName" -Name SnapViewMode -PropertyType String -Value "True"
 					If ($Error)
 					{
-						Log -text "An error occured while trying to enable SnapViewMode." -Component "MainForm.psf_Set-SnapViewMode" -Type 3
-						Log -text "$Error" -Component "MainForm.psf_Set-SnapViewMode" -Type 3
-						Log -text "" -Component "MainForm.psf_Set-SnapViewMode" -Type 3
-						Show-MessageBox_psf -title "ERROR" -text "An error occured while attempting to enable SnapViewMode.`n`nSee log for additional details." -boxtype 1 -image 5 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
+						Log -text "An error occured while trying to enable SnapViewMode." -Component "MainForm_Set-SnapViewMode" -Type 3
+						Log -text "$Error" -Component "MainForm_Set-SnapViewMode" -Type 3
+						Log -text "" -Component "MainForm_Set-SnapViewMode" -Type 3
+						Show-MessageBox -title "ERROR" -text "An error occured while attempting to enable SnapViewMode.`n`nSee log for additional details." -boxtype 1 -image 5 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
 					}
 					Else
 					{
@@ -1103,8 +1081,6 @@ function Show-MainForm
 		{
 			$MainForm.MinimumSize = (New-Object System.Drawing.Size(311, 155))
 			$MainForm.Size = (New-Object System.Drawing.Size([int]$Original_Size.Split('_')[1], [int]$Original_Size.Split('_')[0]))
-			#$listview1.Location = (New-Object System.Drawing.Size (12, 27))
-			#$listview1.Size = (New-Object System.Drawing.Size (587, 234))
 			$setSnapViewToolStripMenuItem.Text = "Enable SnapView Mode"
 		}
 		elseif ($Config_SnapViewMode -eq $true)
@@ -1130,10 +1106,10 @@ function Show-MainForm
 					Set-ItemProperty -Path "$Config_RootHKCU$AppShortName" -Name AlwaysOnTop -Value "False"
 					If ($Error)
 					{
-						Log -text "An error occured while trying to disable AlwaysOnTop." -Component "MainForm.psf_Toggle-AlwaysOnTop" -Type 3
-						Log -text "$Error" -Component "MainForm.psf_Toggle-AlwaysOnTop" -Type 3
-						Log -text "" -Component "MainForm.psf_Toggle-AlwaysOnTop" -Type 3
-						Show-MessageBox_psf -title "ERROR" -text "An error occured while attempting to disable AlwaysOnTop.`n`nSee log for additional details." -boxtype 1 -image 5 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
+						Log -text "An error occured while trying to disable AlwaysOnTop." -Component "MainForm_Toggle-AlwaysOnTop" -Type 3
+						Log -text "$Error" -Component "MainForm_Toggle-AlwaysOnTop" -Type 3
+						Log -text "" -Component "MainForm_Toggle-AlwaysOnTop" -Type 3
+						Show-MessageBox -title "ERROR" -text "An error occured while attempting to disable AlwaysOnTop.`n`nSee log for additional details." -boxtype 1 -image 5 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
 					}
 					Else
 					{
@@ -1146,10 +1122,10 @@ function Show-MainForm
 					New-ItemProperty -Path "$Config_RootHKCU$AppShortName" -Name AlwaysOnTop -PropertyType String -Value "False"
 					If ($Error)
 					{
-						Log -text "An error occured while trying to disable AlwaysOnTop." -Component "MainForm.psf_Toggle-AlwaysOnTop" -Type 3
-						Log -text "$Error" -Component "MainForm.psf_Toggle-AlwaysOnTop" -Type 3
-						Log -text "" -Component "MainForm.psf_Toggle-AlwaysOnTop" -Type 3
-						Show-MessageBox_psf -title "ERROR" -text "An error occured while attempting to disable AlwaysOnTop.`n`nSee log for additional details." -boxtype 1 -image 5 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
+						Log -text "An error occured while trying to disable AlwaysOnTop." -Component "MainForm_Toggle-AlwaysOnTop" -Type 3
+						Log -text "$Error" -Component "MainForm_Toggle-AlwaysOnTop" -Type 3
+						Log -text "" -Component "MainForm_Toggle-AlwaysOnTop" -Type 3
+						Show-MessageBox -title "ERROR" -text "An error occured while attempting to disable AlwaysOnTop.`n`nSee log for additional details." -boxtype 1 -image 5 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
 					}
 					Else
 					{
@@ -1166,10 +1142,10 @@ function Show-MainForm
 					Set-ItemProperty -Path "$Config_RootHKCU$AppShortName" -Name AlwaysOnTop -Value "True"
 					If ($Error)
 					{
-						Log -text "An error occured while trying to enable AlwaysOnTop." -Component "MainForm.psf_Toggle-AlwaysOnTop" -Type 3
-						Log -text "$Error" -Component "MainForm.psf_Toggle-AlwaysOnTop" -Type 3
-						Log -text "" -Component "MainForm.psf_Toggle-AlwaysOnTop" -Type 3
-						Show-MessageBox_psf -title "ERROR" -text "An error occured while attempting to enable AlwaysOnTop.`n`nSee log for additional details." -boxtype 1 -image 5 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
+						Log -text "An error occured while trying to enable AlwaysOnTop." -Component "MainForm_Toggle-AlwaysOnTop" -Type 3
+						Log -text "$Error" -Component "MainForm_Toggle-AlwaysOnTop" -Type 3
+						Log -text "" -Component "MainForm_Toggle-AlwaysOnTop" -Type 3
+						Show-MessageBox -title "ERROR" -text "An error occured while attempting to enable AlwaysOnTop.`n`nSee log for additional details." -boxtype 1 -image 5 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
 					}
 					Else
 					{
@@ -1182,10 +1158,10 @@ function Show-MainForm
 					New-ItemProperty -Path "$Config_RootHKCU$AppShortName" -Name AlwaysOnTop -PropertyType String -Value "True"
 					If ($Error)
 					{
-						Log -text "An error occured while trying to enable AlwaysOnTop." -Component "MainForm.psf_Toggle-AlwaysOnTop" -Type 3
-						Log -text "$Error" -Component "MainForm.psf_Toggle-AlwaysOnTop" -Type 3
-						Log -text "" -Component "MainForm.psf_Toggle-AlwaysOnTop" -Type 3
-						Show-MessageBox_psf -title "ERROR" -text "An error occured while attempting to enable AlwaysOnTop.`n`nSee log for additional details." -boxtype 1 -image 5 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
+						Log -text "An error occured while trying to enable AlwaysOnTop." -Component "MainForm_Toggle-AlwaysOnTop" -Type 3
+						Log -text "$Error" -Component "MainForm_Toggle-AlwaysOnTop" -Type 3
+						Log -text "" -Component "MainForm_Toggle-AlwaysOnTop" -Type 3
+						Show-MessageBox -title "ERROR" -text "An error occured while attempting to enable AlwaysOnTop.`n`nSee log for additional details." -boxtype 1 -image 5 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
 					}
 					Else
 					{
@@ -1234,10 +1210,10 @@ function Show-MainForm
 					Set-ItemProperty -Path "$Config_RootHKCU$AppShortName" -Name UseLastKnownSizeLocation -Value "False"
 					If ($Error)
 					{
-						Log -text "An error occured while trying to disable UseLastKnownSizeLocation." -Component "MainForm.psf_Toggle-RememberSizeLocation" -Type 3
-						Log -text "$Error" -Component "MainForm.psf_Toggle-RememberSizeLocation" -Type 3
-						Log -text "" -Component "MainForm.psf_Toggle-RememberSizeLocation" -Type 3
-						Show-MessageBox_psf -title "ERROR" -text "An error occured while attempting to disable UseLastKnownSizeLocation.`n`nSee log for additional details." -boxtype 1 -image 5 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
+						Log -text "An error occured while trying to disable UseLastKnownSizeLocation." -Component "MainForm_Toggle-RememberSizeLocation" -Type 3
+						Log -text "$Error" -Component "MainForm_Toggle-RememberSizeLocation" -Type 3
+						Log -text "" -Component "MainForm_Toggle-RememberSizeLocation" -Type 3
+						Show-MessageBox -title "ERROR" -text "An error occured while attempting to disable UseLastKnownSizeLocation.`n`nSee log for additional details." -boxtype 1 -image 5 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
 					}
 					Else
 					{
@@ -1250,10 +1226,10 @@ function Show-MainForm
 					New-ItemProperty -Path "$Config_RootHKCU$AppShortName" -Name UseLastKnownSizeLocation -PropertyType String -Value "False"
 					If ($Error)
 					{
-						Log -text "An error occured while trying to disable UseLastKnownSizeLocation." -Component "MainForm.psf_Toggle-RememberSizeLocation" -Type 3
-						Log -text "$Error" -Component "MainForm.psf_Toggle-RememberSizeLocation" -Type 3
-						Log -text "" -Component "MainForm.psf_Toggle-RememberSizeLocation" -Type 3
-						Show-MessageBox_psf -title "ERROR" -text "An error occured while attempting to disable UseLastKnownSizeLocation.`n`nSee log for additional details." -boxtype 1 -image 5 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
+						Log -text "An error occured while trying to disable UseLastKnownSizeLocation." -Component "MainForm_Toggle-RememberSizeLocation" -Type 3
+						Log -text "$Error" -Component "MainForm_Toggle-RememberSizeLocation" -Type 3
+						Log -text "" -Component "MainForm_Toggle-RememberSizeLocation" -Type 3
+						Show-MessageBox -title "ERROR" -text "An error occured while attempting to disable UseLastKnownSizeLocation.`n`nSee log for additional details." -boxtype 1 -image 5 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
 					}
 					Else
 					{
@@ -1270,10 +1246,10 @@ function Show-MainForm
 					Set-ItemProperty -Path "$Config_RootHKCU$AppShortName" -Name UseLastKnownSizeLocation -Value "True"
 					If ($Error)
 					{
-						Log -text "An error occured while trying to enable UseLastKnownSizeLocation." -Component "MainForm.psf_Toggle-RememberSizeLocation" -Type 3
-						Log -text "$Error" -Component "MainForm.psf_Toggle-RememberSizeLocation" -Type 3
-						Log -text "" -Component "MainForm.psf_Toggle-RememberSizeLocation" -Type 3
-						Show-MessageBox_psf -title "ERROR" -text "An error occured while attempting to enable UseLastKnownSizeLocation.`n`nSee log for additional details." -boxtype 1 -image 5 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
+						Log -text "An error occured while trying to enable UseLastKnownSizeLocation." -Component "MainForm_Toggle-RememberSizeLocation" -Type 3
+						Log -text "$Error" -Component "MainForm_Toggle-RememberSizeLocation" -Type 3
+						Log -text "" -Component "MainForm_Toggle-RememberSizeLocation" -Type 3
+						Show-MessageBox -title "ERROR" -text "An error occured while attempting to enable UseLastKnownSizeLocation.`n`nSee log for additional details." -boxtype 1 -image 5 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
 					}
 					Else
 					{
@@ -1286,10 +1262,10 @@ function Show-MainForm
 					New-ItemProperty -Path "$Config_RootHKCU$AppShortName" -Name UseLastKnownSizeLocation -PropertyType String -Value "True"
 					If ($Error)
 					{
-						Log -text "An error occured while trying to enable UseLastKnownSizeLocation." -Component "MainForm.psf_Toggle-RememberSizeLocation" -Type 3
-						Log -text "$Error" -Component "MainForm.psf_Toggle-RememberSizeLocation" -Type 3
-						Log -text "" -Component "MainForm.psf_Toggle-RememberSizeLocation" -Type 3
-						Show-MessageBox_psf -title "ERROR" -text "An error occured while attempting to enable UseLastKnownSizeLocation.`n`nSee log for additional details." -boxtype 1 -image 5 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
+						Log -text "An error occured while trying to enable UseLastKnownSizeLocation." -Component "MainForm_Toggle-RememberSizeLocation" -Type 3
+						Log -text "$Error" -Component "MainForm_Toggle-RememberSizeLocation" -Type 3
+						Log -text "" -Component "MainForm_Toggle-RememberSizeLocation" -Type 3
+						Show-MessageBox -title "ERROR" -text "An error occured while attempting to enable UseLastKnownSizeLocation.`n`nSee log for additional details." -boxtype 1 -image 5 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
 					}
 					Else
 					{
@@ -1338,23 +1314,23 @@ function Show-MainForm
 				$e,
 				$a
 			)
-			Debug-Log -text "Checking the executable..." -Component "MainForm.psf_ExecutionSecurityCheck_Check-Exe" -Type 4
+			Log -text "Checking the executable..." -Component "MainForm_ExecutionSecurityCheck_Check-Exe" -Type 4
 			If ((Test-Path -Path "$Config_RootHKCU$AppShortName\Security\$ExecutedFileHash"))
 			{
-				Debug-Log -text "Exclusion found for file." -Component "MainForm.psf_ExecutionSecurityCheck_Check-Exe" -Type 4
+				Log -text "Exclusion found for file." -Component "MainForm_ExecutionSecurityCheck_Check-Exe" -Type 4
 				Check-Args -e $e -a $a
 			}
 			Else
 			{
-				Debug-Log -text "No exclusion found for the file. Prompting to see if an exclusion should be created." -Component "MainForm.psf_ExecutionSecurityCheck_Check-Exe" -Type 4
-				If ((Show-MessageBox_psf -title "WARNING" -text "The following execution path and/or execution argument has failed a security check.`n`nExecution Path: $e`nExecution Argument: $a`n`nWould you like to whitelist the execution path and/or argument and continue with launching it?" -boxtype 4 -image 3 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))) -eq 'Yes')
+				Log -text "No exclusion found for the file. Prompting to see if an exclusion should be created." -Component "MainForm_ExecutionSecurityCheck_Check-Exe" -Type 4
+				If ((Show-MessageBox -title "WARNING" -text "The following execution path and/or execution argument has failed a security check.`n`nExecution Path: $e`nExecution Argument: $a`n`nWould you like to whitelist the execution path and/or argument and continue with launching it?" -boxtype 4 -image 3 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))) -eq 'Yes')
 				{
-					Debug-Log -text "It was selected to continue with the execution and whitelist the execution." -Component "MainForm.psf_ExecutionSecurityCheck_Check-Exe" -Type 4
+					Log -text "It was selected to continue with the execution and whitelist the execution." -Component "MainForm_ExecutionSecurityCheck_Check-Exe" -Type 4
 					WhiteListExecution -e $e -a $a
 				}
 				Else
 				{
-					Log -text "It was elected to cancel the execution of this unknown execution path and/or execution argument." -Component "MainForm.psf_ExecutionSecurityCheck_Check-Exe" -Type 1
+					Log -text "It was elected to cancel the execution of this unknown execution path and/or execution argument." -Component "MainForm_ExecutionSecurityCheck_Check-Exe" -Type 1
 					$script:PassExec = $false
 				}
 			}
@@ -1365,12 +1341,12 @@ function Show-MainForm
 				$e,
 				$a
 			)
-			Debug-Log -text "Checking the arguments..." -Component "MainForm.psf_ExecutionSecurityCheck_Check-Args" -Type 4
+			Log -text "Checking the arguments..." -Component "MainForm_ExecutionSecurityCheck_Check-Args" -Type 4
 			If ($Arguments.Length -ge 1)
 			{
 				If ((Test-Path "$Config_RootHKCU$AppShortName\Security\$ExecutedFileHash\"))
 				{
-					Debug-Log -text "Compiling a list of excluded hashes..." -Component "MainForm.psf_ExecutionSecurityCheck_Check-Args" -Type 4
+					Log -text "Compiling a list of excluded hashes..." -Component "MainForm_ExecutionSecurityCheck_Check-Args" -Type 4
 					$AHashes = @()
 					foreach ($Hash in (Get-ItemProperty -Path "$Config_RootHKCU$AppShortName\Security\$ExecutedFileHash\").AHash.ToString().Split(' '))
 					{
@@ -1378,41 +1354,41 @@ function Show-MainForm
 					}
 					If (!($AHashes -contains $ArgumentHash))
 					{
-						Debug-Log -text "The hash of the command line argument was not found whitelisted. Prompting to see if an exclusion should be created." -Component "MainForm.psf_ExecutionSecurityCheck_Check-Args" -Type 4
-						If ((Show-MessageBox_psf -title "WARNING" -text "The following execution path and/or execution argument has failed a security check.`n`nExecution Path: $e`nExecution Argument: $a`n`nWould you like to whitelist the execution path and/or argument and continue with launching it?" -boxtype 4 -image 3 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))) -eq 'Yes')
+						Log -text "The hash of the command line argument was not found whitelisted. Prompting to see if an exclusion should be created." -Component "MainForm_ExecutionSecurityCheck_Check-Args" -Type 4
+						If ((Show-MessageBox -title "WARNING" -text "The following execution path and/or execution argument has failed a security check.`n`nExecution Path: $e`nExecution Argument: $a`n`nWould you like to whitelist the execution path and/or argument and continue with launching it?" -boxtype 4 -image 3 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))) -eq 'Yes')
 						{
-							Debug-Log -text "It was selected to continue with the execution and whitelist the execution." -Component "MainForm.psf_ExecutionSecurityCheck_Check-Args" -Type 4
+							Log -text "It was selected to continue with the execution and whitelist the execution." -Component "MainForm_ExecutionSecurityCheck_Check-Args" -Type 4
 							WhiteListExecution -e $e -a $a
 						}
 						Else
 						{
-							Log -text "It was elected to cancel the execution of this unknown execution path and/or execution argument." -Component "MainForm.psf_ExecutionSecurityCheck_Check-Args" -Type 1
+							Log -text "It was elected to cancel the execution of this unknown execution path and/or execution argument." -Component "MainForm_ExecutionSecurityCheck_Check-Args" -Type 1
 							$script:PassExec = $false
 						}
 					}
 					Else
 					{
-						Debug-Log -text "Argument hash exclusion found." -Component "MainForm.psf_ExecutionSecurityCheck_Check-Args" -Type 4
+						Log -text "Argument hash exclusion found." -Component "MainForm_ExecutionSecurityCheck_Check-Args" -Type 4
 					}
 				}
 				Else
 				{
-					Debug-Log -text "No hash exists for the Executed File. Prompting to see if an exclusion should be created." -Component "MainForm.psf_ExecutionSecurityCheck_Check-Args" -Type 4
-					If ((Show-MessageBox_psf -title "WARNING" -text "The following execution path and/or execution argument has failed a security check.`n`nExecution Path: $e`nExecution Argument: $a`n`nWould you like to whitelist the execution path and/or argument and continue with launching it?" -boxtype 4 -image 3 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))) -eq 'Yes')
+					Log -text "No hash exists for the Executed File. Prompting to see if an exclusion should be created." -Component "MainForm_ExecutionSecurityCheck_Check-Args" -Type 4
+					If ((Show-MessageBox -title "WARNING" -text "The following execution path and/or execution argument has failed a security check.`n`nExecution Path: $e`nExecution Argument: $a`n`nWould you like to whitelist the execution path and/or argument and continue with launching it?" -boxtype 4 -image 3 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))) -eq 'Yes')
 					{
-						Debug-Log -text "It was selected to continue with the execution and whitelist the execution." -Component "MainForm.psf_ExecutionSecurityCheck_Check-Args" -Type 4
+						Log -text "It was selected to continue with the execution and whitelist the execution." -Component "MainForm_ExecutionSecurityCheck_Check-Args" -Type 4
 						WhiteListExecution -e $e -a $a
 					}
 					Else
 					{
-						Log -text "It was elected to cancel the execution of this unknown execution path and/or execution argument." -Component "MainForm.psf_ExecutionSecurityCheck_Check-Args" -Type 1
+						Log -text "It was elected to cancel the execution of this unknown execution path and/or execution argument." -Component "MainForm_ExecutionSecurityCheck_Check-Args" -Type 1
 						$script:PassExec = $false
 					}
 				}
 			}
 			Else
 			{
-				Debug-Log -text "No arguments found to evaluate." -Component "MainForm.psf_ExecutionSecurityCheck_Check-Args" -Type 4
+				Log -text "No arguments found to evaluate." -Component "MainForm_ExecutionSecurityCheck_Check-Args" -Type 4
 			}
 		}
 		function WhiteListExecution
@@ -1423,123 +1399,123 @@ function Show-MainForm
 			)
 			function ExclusionError
 			{
-				Show-MessageBox_psf -title "ERROR" -text "An error occured while attempting to create the exclusion key.`n`nSee log for additional details." -boxtype 1 -image 5 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
+				Show-MessageBox -title "ERROR" -text "An error occured while attempting to create the exclusion key.`n`nSee log for additional details." -boxtype 1 -image 5 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
 			}
-			Debug-Log -text "Starting the process of whitelisting the current execution..." -Component "MainForm.psf_ExecutionSecurityCheck_WhiteListExecution" -Type 4
+			Log -text "Starting the process of whitelisting the current execution..." -Component "MainForm_ExecutionSecurityCheck_WhiteListExecution" -Type 4
 			If (!(Test-Path "$Config_RootHKCU$AppShortName\Security\"))
 			{
-				Debug-Log -text "Security key doesn't exist. Creating..." -Component "MainForm.psf_ExecutionSecurityCheck_WhiteListExecution" -Type 4
+				Log -text "Security key doesn't exist. Creating..." -Component "MainForm_ExecutionSecurityCheck_WhiteListExecution" -Type 4
 				$Error.Clear()
 				New-Item -Path "$Config_RootHKCU$AppShortName\Security\" -Force
 				If ($Error)
 				{
-					Log -text "An error occured while attempting to create the Security key." -Component "MainForm.psf_ExecutionSecurityCheck_WhiteListExecution" -Type 3
-					Log -text "$Error" -Component "MainForm.psf_ExecutionSecurityCheck_WhiteListExecution" -Type 3
-					Log -text "" -Component "MainForm.psf_ExecutionSecurityCheck_WhiteListExecution" -Type 3
+					Log -text "An error occured while attempting to create the Security key." -Component "MainForm_ExecutionSecurityCheck_WhiteListExecution" -Type 3
+					Log -text "$Error" -Component "MainForm_ExecutionSecurityCheck_WhiteListExecution" -Type 3
+					Log -text "" -Component "MainForm_ExecutionSecurityCheck_WhiteListExecution" -Type 3
 					ExclusionError
 				}
 				Else
 				{
-					Debug-Log -text "Security Key successfully created." -Component "MainForm.psf_ExecutionSecurityCheck_WhiteListExecution" -Type 4
+					Log -text "Security Key successfully created." -Component "MainForm_ExecutionSecurityCheck_WhiteListExecution" -Type 4
 				}
 			}
 			If (!(Test-Path "$Config_RootHKCU$AppShortName\Security\$ExecutedFileHash\"))
 			{
-				Debug-Log -text "Key doesn't exist yet for the hash of the executed item. Creating..." -Component "MainForm.psf_ExecutionSecurityCheck_WhiteListExecution" -Type 4
+				Log -text "Key doesn't exist yet for the hash of the executed item. Creating..." -Component "MainForm_ExecutionSecurityCheck_WhiteListExecution" -Type 4
 				$Error.Clear()
 				New-Item -Path "$Config_RootHKCU$AppShortName\Security\$ExecutedFileHash\" -Force
 				If ($Error)
 				{
-					Log -text "An error occured while attempting to create the execution hash key." -Component "MainForm.psf_ExecutionSecurityCheck_WhiteListExecution" -Type 3
-					Log -text "$Error" -Component "MainForm.psf_ExecutionSecurityCheck_WhiteListExecution" -Type 3
-					Log -text "" -Component "MainForm.psf_ExecutionSecurityCheck_WhiteListExecution" -Type 3
+					Log -text "An error occured while attempting to create the execution hash key." -Component "MainForm_ExecutionSecurityCheck_WhiteListExecution" -Type 3
+					Log -text "$Error" -Component "MainForm_ExecutionSecurityCheck_WhiteListExecution" -Type 3
+					Log -text "" -Component "MainForm_ExecutionSecurityCheck_WhiteListExecution" -Type 3
 					ExclusionError
 				}
 				Else
 				{
-					Debug-Log -text "Execution hash key successfully created." -Component "MainForm.psf_ExecutionSecurityCheck_WhiteListExecution" -Type 4
+					Log -text "Execution hash key successfully created." -Component "MainForm_ExecutionSecurityCheck_WhiteListExecution" -Type 4
 				}
 			}
 			If ($a.Length -ge 1)
 			{
 				If (((Get-ItemProperty -Path "$Config_RootHKCU$AppShortName\Security\$ExecutedFileHash\").AHash))
 				{
-					Debug-Log -text "Updating the existing Argument hash array..." -Component "MainForm.psf_ExecutionSecurityCheck_WhiteListExecution" -Type 4
+					Log -text "Updating the existing Argument hash array..." -Component "MainForm_ExecutionSecurityCheck_WhiteListExecution" -Type 4
 					$Error.Clear()
 					Set-ItemProperty -Path "$Config_RootHKCU$AppShortName\Security\$ExecutedFileHash" -Name "AHash" -Value (Get-ItemProperty -Path $Config_RootHKCU$AppShortName\Security\$ExecutedFileHash\).AHash.ToString(),$ArgumentHash -Force
 					If ($Error)
 					{
-						Log -text "An error occured while attempting to update the existing Argument hash array." -Component "MainForm.psf_ExecutionSecurityCheck_WhiteListExecution" -Type 3
-						Log -text "$Error" -Component "MainForm.psf_ExecutionSecurityCheck_WhiteListExecution" -Type 3
-						Log -text "" -Component "MainForm.psf_ExecutionSecurityCheck_WhiteListExecution" -Type 3
+						Log -text "An error occured while attempting to update the existing Argument hash array." -Component "MainForm_ExecutionSecurityCheck_WhiteListExecution" -Type 3
+						Log -text "$Error" -Component "MainForm_ExecutionSecurityCheck_WhiteListExecution" -Type 3
+						Log -text "" -Component "MainForm_ExecutionSecurityCheck_WhiteListExecution" -Type 3
 						ExclusionError
 					}
 					Else
 					{
-						Debug-Log -text "Successfully updated the Argument hash array." -Component "MainForm.psf_ExecutionSecurityCheck_WhiteListExecution" -Type 4
+						Log -text "Successfully updated the Argument hash array." -Component "MainForm_ExecutionSecurityCheck_WhiteListExecution" -Type 4
 					}
 				}
 				Else
 				{
-					Debug-Log -text "Creating the Argument hash array..." -Component "MainForm.psf_ExecutionSecurityCheck_WhiteListExecution" -Type 4
+					Log -text "Creating the Argument hash array..." -Component "MainForm_ExecutionSecurityCheck_WhiteListExecution" -Type 4
 					$Error.Clear()
 					New-ItemProperty -Path "$Config_RootHKCU$AppShortName\Security\$ExecutedFileHash\" -Name "AHash" -Value "$ArgumentHash" -Force
 					If ($Error)
 					{
-						Log -text "An error occured while attempting to create the Argument hash array." -Component "MainForm.psf_ExecutionSecurityCheck_WhiteListExecution" -Type 3
-						Log -text "$Error" -Component "MainForm.psf_ExecutionSecurityCheck_WhiteListExecution" -Type 3
-						Log -text "" -Component "MainForm.psf_ExecutionSecurityCheck_WhiteListExecution" -Type 3
+						Log -text "An error occured while attempting to create the Argument hash array." -Component "MainForm_ExecutionSecurityCheck_WhiteListExecution" -Type 3
+						Log -text "$Error" -Component "MainForm_ExecutionSecurityCheck_WhiteListExecution" -Type 3
+						Log -text "" -Component "MainForm_ExecutionSecurityCheck_WhiteListExecution" -Type 3
 						ExclusionError
 					}
 					Else
 					{
-						Debug-Log -text "Successfully created the argument hash array." -Component "MainForm.psf_ExecutionSecurityCheck_WhiteListExecution" -Type 4
+						Log -text "Successfully created the argument hash array." -Component "MainForm_ExecutionSecurityCheck_WhiteListExecution" -Type 4
 					}
 				}
 			}
 		}
-		Debug-Log -text "Starting Execution Security Check." -Component "MainForm.psf_ExecutionSecurityCheck" -Type 4
-		Debug-Log -text "ExecutedFile: $ExecutedFile" -Component "MainForm.psf_ExecutionSecurityCheck" -Type 4
-		Debug-Log -text "Argument: $Arguments" -Component "MainForm.psf_ExecutionSecurityCheck" -Type 4
-		Debug-Log -text "Obtaining hash of file and arguments..." -Component "MainForm.psf_ExecutionSecurityCheck" -Type 4
+		Log -text "Starting Execution Security Check." -Component "MainForm_ExecutionSecurityCheck" -Type 4
+		Log -text "ExecutedFile: $ExecutedFile" -Component "MainForm_ExecutionSecurityCheck" -Type 4
+		Log -text "Argument: $Arguments" -Component "MainForm_ExecutionSecurityCheck" -Type 4
+		Log -text "Obtaining hash of file and arguments..." -Component "MainForm_ExecutionSecurityCheck" -Type 4
 		$Script:ExecutedFileHash = Get-FileHash -file $ExecutedFile
 		$Script:ArgumentHash = Get-HashofString -textToHash $Arguments
-		Debug-Log -text "File Hash: $ExecutedFileHash" -Component "MainForm.psf_ExecutionSecurityCheck" -Type 4
-		Debug-Log -text "Argument Hash: $ArgumentHash" -Component "MainForm.psf_ExecutionSecurityCheck" -Type 4
-		Log -text "Running Execution Security Check..." -Component "MainForm.psf_ExecutionSecurityCheck" -Type 1
+		Log -text "File Hash: $ExecutedFileHash" -Component "MainForm_ExecutionSecurityCheck" -Type 4
+		Log -text "Argument Hash: $ArgumentHash" -Component "MainForm_ExecutionSecurityCheck" -Type 4
+		Log -text "Running Execution Security Check..." -Component "MainForm_ExecutionSecurityCheck" -Type 1
 		$Script:PassExec = $true
-		Debug-Log -text "Obtaining Digital Signature status..." -Component "MainForm.psf_ExecutionSecurityCheck" -Type 4
+		Log -text "Obtaining Digital Signature status..." -Component "MainForm_ExecutionSecurityCheck" -Type 4
 		$Error.Clear()
 		$Signature = Get-AuthenticodeSignature -FilePath $ExecutedFile
 		If ($Error)
 		{
-			Log -text "An error occured while attempting to obtain the digital signature status." -Component "MainForm.psf_ExecutionSecurityCheck" -Type 3
-			Log -text "$Error" -Component "MainForm.psf_ExecutionSecurityCheck" -Type 3
-			Log -text "" -Component "MainForm.psf_ExecutionSecurityCheck" -Type 3
+			Log -text "An error occured while attempting to obtain the digital signature status." -Component "MainForm_ExecutionSecurityCheck" -Type 3
+			Log -text "$Error" -Component "MainForm_ExecutionSecurityCheck" -Type 3
+			Log -text "" -Component "MainForm_ExecutionSecurityCheck" -Type 3
 		}
 		If (($Signature.Status -eq "UnknownError") -or ($Signature.Status -eq "NotSigned"))
 		{
-			Debug-Log -text "It would appear that there is no digital signature." -Component "MainForm.psf_ExecutionSecurityCheck" -Type 4
-			Debug-Log -text "Checking ownership to see if it's set to TrustedInstaller..." -Component "MainForm.psf_ExecutionSecurityCheck" -Type 4
+			Log -text "It would appear that there is no digital signature." -Component "MainForm_ExecutionSecurityCheck" -Type 4
+			Log -text "Checking ownership to see if it's set to TrustedInstaller..." -Component "MainForm_ExecutionSecurityCheck" -Type 4
 			If ((Get-Acl -Path $ExecutedFile).Owner -eq "NT SERVICE\TrustedInstaller")
 			{
-				Debug-Log -text "Owner is set to TrustedInstaller. Checking for command line arguments..." -Component "MainForm.psf_ExecutionSecurityCheck" -Type 4
+				Log -text "Owner is set to TrustedInstaller. Checking for command line arguments..." -Component "MainForm_ExecutionSecurityCheck" -Type 4
 				Check-Args -e $ExecutedFile -a $Arguments
 			}
 			Else
 			{
-				Debug-Log -text "Owner is not set to TrustedInstaller. Checking to see if file is excluded..." -Component "MainForm.psf_ExecutionSecurityCheck" -Type 4
+				Log -text "Owner is not set to TrustedInstaller. Checking to see if file is excluded..." -Component "MainForm_ExecutionSecurityCheck" -Type 4
 				Check-Exe -e $ExecutedFile -a $Arguments
 			}
 		}
 		elseif ($Signature.Status -eq "Valid")
 		{
-			Debug-Log -text "Digital signature is valid. Checking for command line arguments..." -Component "MainForm.psf_ExecutionSecurityCheck" -Type 4
+			Log -text "Digital signature is valid. Checking for command line arguments..." -Component "MainForm_ExecutionSecurityCheck" -Type 4
 			Check-Args -e $ExecutedFile -a $Arguments
 		}
 		else
 		{
-			Log -text "The digital signature that was used to sign the file is no longer valid. Failing execution." -Component "MainForm.psf_ExecutionSecurityCheck" -Type 3
+			Log -text "The digital signature that was used to sign the file is no longer valid. Failing execution." -Component "MainForm_ExecutionSecurityCheck" -Type 3
 			$Script:PassExec = $false
 		}
 		return, $PassExec
@@ -1550,8 +1526,9 @@ function Show-MainForm
 	$MainForm_Load={
 		If ((MainForm-Startup -RunAdminCheck $false) -eq $true)
 		{
-			$MainForm.Text = "$AppLongName Public v$CurrentRunningVersion"
+			$MainForm.Text = "$AppLongName v$CurrentRunningVersion"
 			Initial-Load
+
 			$timerBringtoFront.Start()
 			If (($Config_ShowNewStuff -eq $true) -and ($ShowVersionUpdates -eq $true))
 			{
@@ -1566,7 +1543,7 @@ function Show-MainForm
 
 	$showConfigToolStripMenuItem_Click={
 		Switch-TopMost
-		Show-ShowCurrentConfig_psf
+		Show-ShowCurrentConfig
 		Switch-TopMost
 	}
 	$reloadConfigToolStripMenuItem_Click={
@@ -1575,7 +1552,7 @@ function Show-MainForm
 	}
 	$logToolStripMenuItem_Click={
 		Switch-TopMost
-		Show-Log_psf
+		Show-Log
 		Switch-TopMost
 	}
 	$showToolTipsToolStripMenuItem_Click={
@@ -1619,38 +1596,38 @@ function Show-MainForm
 	$uninstallToolStripMenuItem_Click={
 		If ((Message-Box -text "Are you sure you want to uninstall this tool?" -boxtype 4) -eq "YES")
 		{
-			Debug-Log -text "Uninstall tool: $($listview1.Items[$ListViewHitIndex].Name)" -Component "MainForm.psf_uninstallToolStripMenuItem_Click" -Type 4
-			Debug-Log -text "Checking to see if the tool is currently running..." -Component "MainForm.psf_uninstallToolStripMenuItem_Click" -Type 4
+			Log -text "Uninstall tool: $($listview1.Items[$ListViewHitIndex].Name)" -Component "MainForm_uninstallToolStripMenuItem_Click" -Type 4
+			Log -text "Checking to see if the tool is currently running..." -Component "MainForm_uninstallToolStripMenuItem_Click" -Type 4
 			If ((Get-WmiObject Win32_Process | Where-Object { $_.Path -eq "$($listview1.Items[$ListViewHitIndex].Tag)" }).count -ge 1)
 			{
-				Debug-Log -text "One or more instances of the tool are running. Terminating the processes..." -Component "MainForm.psf_uninstallToolStripMenuItem_Click" -Type 4
+				Log -text "One or more instances of the tool are running. Terminating the processes..." -Component "MainForm_uninstallToolStripMenuItem_Click" -Type 4
 				foreach ($process in (Get-WmiObject Win32_Process | Where-Object { $_.Path -eq "$($listview1.Items[$ListViewHitIndex].Tag)" }))
 				{
 					$Error.Clear()
 					Stop-Process -Id $process.Handle
 					If ($Error)
 					{
-						Log -text "Failed to terminate the process: $($process.Handle)" -Component "MainForm.psf_uninstallToolStripMenuItem_Click" -Type 3
+						Log -text "Failed to terminate the process: $($process.Handle)" -Component "MainForm_uninstallToolStripMenuItem_Click" -Type 3
 					}
 				}
 			}
 			Else
 			{
-				Debug-Log -text "Tool not found running. Proceeding with uninstall process..." -Component "MainForm.psf_uninstallToolStripMenuItem_Click" -Type 4
+				Log -text "Tool not found running. Proceeding with uninstall process..." -Component "MainForm_uninstallToolStripMenuItem_Click" -Type 4
 			}
-			Debug-Log -text "Removing the tools files..." -Component "MainForm.psf_uninstallToolStripMenuItem_Click" -Type 4
+			Log -text "Removing the tools files..." -Component "MainForm_uninstallToolStripMenuItem_Click" -Type 4
 			$Error.Clear()
 			Remove-Item -Path "$((Get-ItemProperty -Path "$($listview1.Items[$ListViewHitIndex].Tag)").DirectoryName)" -Recurse -Force
 			If ($Error)
 			{
-				Log -text "An error occured while attempting to delete a tools files." -Component "MainForm.psf_uninstallToolStripMenuItem_Click" -Type 3
-				Log -text "$Error" -Component "MainForm.psf_uninstallToolStripMenuItem_Click" -Type 3
-				Log -text "" -Component "MainForm.psf_uninstallToolStripMenuItem_Click" -Type 3
-				Show-MessageBox_psf -title "ERROR" -text "An error occured.`n`nSee log for additional details." -boxtype 1 -image 5 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
+				Log -text "An error occured while attempting to delete a tools files." -Component "MainForm_uninstallToolStripMenuItem_Click" -Type 3
+				Log -text "$Error" -Component "MainForm_uninstallToolStripMenuItem_Click" -Type 3
+				Log -text "" -Component "MainForm_uninstallToolStripMenuItem_Click" -Type 3
+				Show-MessageBox -title "ERROR" -text "An error occured.`n`nSee log for additional details." -boxtype 1 -image 5 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
 			}
 			Else
 			{
-				Show-MessageBox_psf -title "" -text "Successfully uninstalled tool." -boxtype 1 -image 2 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
+				Show-MessageBox -title "" -text "Successfully uninstalled tool." -boxtype 1 -image 2 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
 				Initial-Load
 			}
 		}
@@ -1679,41 +1656,44 @@ function Show-MainForm
 	$importToolStripMenuItem_Click={
 		Import-Registry
 	}
+   	$updateToolStripMenuItem_Click={
+		Check-ForUpdate -RunManualCheck:$true
+	}
 	$timerShowNewStuff_Tick={
 		push-location $Config_NetSourceDir
 		$timerShowNewStuff.Stop()
-		Debug-Log -text "Running ShowNewStuff timer..." -Component "MainForm.psf_timerShowNewStuff_Tick" -Type 4
+		Log -text "Running ShowNewStuff timer..." -Component "MainForm_timerShowNewStuff_Tick" -Type 4
 		If (Test-Path -Path "$Config_NetSourceDir$AppShortName\UpdateDetails")
 		{
-			Debug-Log -text "The UpdateDetails folder exists for this tool. Loading..." -Component "MainForm.psf_timerShowNewStuff_Tick" -Type 4
+			Log -text "The UpdateDetails folder exists for this tool. Loading..." -Component "MainForm_timerShowNewStuff_Tick" -Type 4
 			Switch-TopMost
 			Show-NewStuff
 			Switch-TopMost
 		}
 		Else
 		{
-			Debug-Log -text "The UpdateDetails folder doesn't exist for this tool." -Component "MainForm.psf_timerShowNewStuff_Tick" -Type 4
+			Log -text "The UpdateDetails folder doesn't exist for this tool." -Component "MainForm_timerShowNewStuff_Tick" -Type 4
 		}
 		pop-location
 	}
 	$removeCustomToolToolStripMenuItem_Click={
-		If ((Show-MessageBox_psf -title "" -text "Are you sure you want to remove this custom tool?" -boxtype 4 -image 4 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))) -eq "YES")
+		If ((Show-MessageBox -title "" -text "Are you sure you want to remove this custom tool?" -boxtype 4 -image 4 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))) -eq "YES")
 		{
-			Debug-Log -text "Removing custom tool: $($listview1.Items[$Script:ListViewHitIndex].Name)" -Component "MainForm.psf_removeCustomToolToolStripMenuItem_Click" -Type 4
+			Log -text "Removing custom tool: $($listview1.Items[$Script:ListViewHitIndex].Name)" -Component "MainForm_removeCustomToolToolStripMenuItem_Click" -Type 4
 			$CustomAppRegPath = $(($EXETable | Where-Object { $_.Name -eq "$($listview1.Items[$Script:ListViewHitIndex].Name)" -and $_.CustomAdd -eq $true }).CustomAddRegPath)
-			Debug-Log -text "Path of custom tool that's being removed: $CustomAppRegPath" -Component "MainForm.psf_removeCustomToolToolStripMenuItem_Click" -Type 4
+			Log -text "Path of custom tool that's being removed: $CustomAppRegPath" -Component "MainForm_removeCustomToolToolStripMenuItem_Click" -Type 4
 			$Error.Clear()
 			Remove-Item -Path "$CustomAppRegPath" -Recurse -Force
 			If ($Error)
 			{
-				Log -text "An error occured while attempting to remove the custom app." -Component "MainForm.psf_removeCustomToolToolStripMenuItem_Click" -Type 3
-				Log -text "$Error" -Component "MainForm.psf_removeCustomToolToolStripMenuItem_Click" -Type 3
-				Log -text "" -Component "MainForm.psf_removeCustomToolToolStripMenuItem_Click" -Type 3
-				Show-MessageBox_psf -title "ERROR" -text "An error occured while attempting to remove the custom app.`n`nSee log for additional details." -boxtype 1 -image 5 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
+				Log -text "An error occured while attempting to remove the custom app." -Component "MainForm_removeCustomToolToolStripMenuItem_Click" -Type 3
+				Log -text "$Error" -Component "MainForm_removeCustomToolToolStripMenuItem_Click" -Type 3
+				Log -text "" -Component "MainForm_removeCustomToolToolStripMenuItem_Click" -Type 3
+				Show-MessageBox -title "ERROR" -text "An error occured while attempting to remove the custom app.`n`nSee log for additional details." -boxtype 1 -image 5 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
 			}
 			Else
 			{
-				Show-MessageBox_psf -title "" -text "Successfully removed custom app." -boxtype 1 -image 2 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
+				Show-MessageBox -title "" -text "Successfully removed custom app." -boxtype 1 -image 2 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
 				Load-Apps
 				Populate-ListView
 			}
@@ -1725,7 +1705,7 @@ function Show-MainForm
 		{
 			Clear-Variable -Scope Global -Name ReScanApps
 		}
-		Show-AddCustomApp_psf
+		Show-AddCustomApp
 		Switch-TopMost
 		If ($ReScanApps -eq $true)
 		{
@@ -1738,11 +1718,11 @@ function Show-MainForm
 		If ($Config_SnapViewMode -eq $false)
 		{
 			$Global:Original_Size="$($MainForm.Size.Height)_$($MainForm.Size.Width)"
-			$listview1.Size = (New-Object System.Drawing.Size([int](($MainForm.Size.Width - 29) - 12), [int](($MainForm.Size.Height - 50) - 27)))
+			$listview1.Size = (New-Object System.Drawing.Size([int]($MainForm.Size.Width - 20), [int]($MainForm.Size.Height - 60)))
 		}
 		elseif ($Config_SnapViewMode -eq $true)
 		{
-			$listview1.Size = (New-Object System.Drawing.Size([int]($MainForm.Size.Width - 40), [int]($MainForm.Size.Height - 75)))
+			$listview1.Size = (New-Object System.Drawing.Size([int]($MainForm.Size.Width -20), [int]($MainForm.Size.Height - 60)))
 		}
 	}
 	$setSnapViewToolStripMenuItem_Click={
@@ -1754,24 +1734,24 @@ function Show-MainForm
 	$MainForm_FormClosing=[System.Windows.Forms.FormClosingEventHandler]{
 		If ($Config_UseLastKnownSizeLocation -eq $true)
 		{
-			Debug-Log -text "Toolbox is closing and is configured to record its last known size and location..." -Component "MainForm.psf_MainForm_FormClosing" -Type 4
+			Log -text "Toolbox is closing and is configured to record its last known size and location..." -Component "MainForm_MainForm_FormClosing" -Type 4
 			If ($MainForm.WindowState -eq 'Minimized')
 			{
-				Debug-Log -text "Window is minimized. Unable to record current location." -Component "MainForm.psf_MainForm_FormClosing" -Type 4
+				Log -text "Window is minimized. Unable to record current location." -Component "MainForm_MainForm_FormClosing" -Type 4
 			}
 			Else
 			{
-				Debug-Log -text "Recording Location..." -Component "MainForm.psf_MainForm_FormClosing" -Type 4
+				Log -text "Recording Location..." -Component "MainForm_MainForm_FormClosing" -Type 4
 				If (((Get-ItemProperty "$Config_RootHKCU$AppShortName\").LastKnownLocation))
 				{
 					$Error.Clear()
 					Set-ItemProperty -Path "$Config_RootHKCU$AppShortName" -Name LastKnownLocation -Value "$($MainForm.Location.X)_$($MainForm.Location.Y)"
 					If ($Error)
 					{
-						Log -text "An error occured while trying to record the last known location." -Component "MainForm.psf_MainForm_FormClosing" -Type 3
-						Log -text "$Error" -Component "MainForm.psf_MainForm_FormClosing" -Type 3
-						Log -text "" -Component "MainForm.psf_MainForm_FormClosing" -Type 3
-						Show-MessageBox_psf -title "ERROR" -text "An error occured while attempting to record the last known location.`n`nSee log for additional details." -boxtype 1 -image 5 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
+						Log -text "An error occured while trying to record the last known location." -Component "MainForm_MainForm_FormClosing" -Type 3
+						Log -text "$Error" -Component "MainForm_MainForm_FormClosing" -Type 3
+						Log -text "" -Component "MainForm_MainForm_FormClosing" -Type 3
+						Show-MessageBox -title "ERROR" -text "An error occured while attempting to record the last known location.`n`nSee log for additional details." -boxtype 1 -image 5 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
 					}
 				}
 				Else
@@ -1780,23 +1760,23 @@ function Show-MainForm
 					New-ItemProperty -Path "$Config_RootHKCU$AppShortName" -Name LastKnownLocation -PropertyType String -Value "$($MainForm.Location.X)_$($MainForm.Location.Y)"
 					If ($Error)
 					{
-						Log -text "An error occured while trying to record the last known location." -Component "MainForm.psf_MainForm_FormClosing" -Type 3
-						Log -text "$Error" -Component "MainForm.psf_MainForm_FormClosing" -Type 3
-						Log -text "" -Component "MainForm.psf_MainForm_FormClosing" -Type 3
-						Show-MessageBox_psf -title "ERROR" -text "An error occured while attempting to record the last known location.`n`nSee log for additional details." -boxtype 1 -image 5 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
+						Log -text "An error occured while trying to record the last known location." -Component "MainForm_MainForm_FormClosing" -Type 3
+						Log -text "$Error" -Component "MainForm_MainForm_FormClosing" -Type 3
+						Log -text "" -Component "MainForm_MainForm_FormClosing" -Type 3
+						Show-MessageBox -title "ERROR" -text "An error occured while attempting to record the last known location.`n`nSee log for additional details." -boxtype 1 -image 5 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
 					}
 				}
-				Debug-Log -text "Recording Size..." -Component "MainForm.psf_MainForm_FormClosing" -Type 4
+				Log -text "Recording Size..." -Component "MainForm_MainForm_FormClosing" -Type 4
 				If (((Get-ItemProperty "$Config_RootHKCU$AppShortName\").LastKnownSize))
 				{
 					$Error.Clear()
 					Set-ItemProperty -Path "$Config_RootHKCU$AppShortName" -Name LastKnownSize -Value "$($MainForm.Size.Height)_$($MainForm.Size.Width)"
 					If ($Error)
 					{
-						Log -text "An error occured while trying to record the last known size." -Component "MainForm.psf_MainForm_FormClosing" -Type 3
-						Log -text "$Error" -Component "MainForm.psf_MainForm_FormClosing" -Type 3
-						Log -text "" -Component "MainForm.psf_MainForm_FormClosing" -Type 3
-						Show-MessageBox_psf -title "ERROR" -text "An error occured while attempting to record the last known size.`n`nSee log for additional details." -boxtype 1 -image 5 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
+						Log -text "An error occured while trying to record the last known size." -Component "MainForm_MainForm_FormClosing" -Type 3
+						Log -text "$Error" -Component "MainForm_MainForm_FormClosing" -Type 3
+						Log -text "" -Component "MainForm_MainForm_FormClosing" -Type 3
+						Show-MessageBox -title "ERROR" -text "An error occured while attempting to record the last known size.`n`nSee log for additional details." -boxtype 1 -image 5 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
 					}
 				}
 				Else
@@ -1805,10 +1785,10 @@ function Show-MainForm
 					New-ItemProperty -Path "$Config_RootHKCU$AppShortName" -Name LastKnownSize -PropertyType String -Value "$($MainForm.Size.Height)_$($MainForm.Size.Width)"
 					If ($Error)
 					{
-						Log -text "An error occured while trying to record the last known size." -Component "MainForm.psf_MainForm_FormClosing" -Type 3
-						Log -text "$Error" -Component "MainForm.psf_MainForm_FormClosing" -Type 3
-						Log -text "" -Component "MainForm.psf_MainForm_FormClosing" -Type 3
-						Show-MessageBox_psf -title "ERROR" -text "An error occured while attempting to record the last known size.`n`nSee log for additional details." -boxtype 1 -image 5 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
+						Log -text "An error occured while trying to record the last known size." -Component "MainForm_MainForm_FormClosing" -Type 3
+						Log -text "$Error" -Component "MainForm_MainForm_FormClosing" -Type 3
+						Log -text "" -Component "MainForm_MainForm_FormClosing" -Type 3
+						Show-MessageBox -title "ERROR" -text "An error occured while attempting to record the last known size.`n`nSee log for additional details." -boxtype 1 -image 5 -x ($MainForm.Location.X + ($MainForm.Size.Width / 2)) -y ($MainForm.Location.Y + ($MainForm.Size.Height / 2))
 					}
 				}	
 			}
@@ -1885,7 +1865,7 @@ function Show-MainForm
 	}
 	$editCustomToolStripMenuItem_Click={
 		Switch-TopMost
-		Show-AddCustomApp_psf -function "Edit" -RegPath "$(($EXETable | Where-Object { $_.Name -eq "$($listview1.Items[$Script:ListViewHitIndex].Name)" -and $_.CustomAdd -eq $true }).CustomAddRegPath)"
+		Show-AddCustomApp -function "Edit" -RegPath "$(($EXETable | Where-Object { $_.Name -eq "$($listview1.Items[$Script:ListViewHitIndex].Name)" -and $_.CustomAdd -eq $true }).CustomAddRegPath)"
 		Switch-TopMost
 		If ($ReScanApps -eq $true)
 		{
@@ -1901,7 +1881,7 @@ function Show-MainForm
 		{
 			Clear-Variable -Scope Global -Name ReScanApps
 		}
-		Show-AddCustomApp_psf
+		Show-AddCustomApp
 		Switch-TopMost
 		If ($ReScanApps -eq $true)
 		{
@@ -1939,6 +1919,7 @@ function Show-MainForm
 			$exitToolStripMenuItem.remove_Click($exitToolStripMenuItem_Click)
 			$exportToolStripMenuItem.remove_Click($exportToolStripMenuItem_Click)
 			$importToolStripMenuItem.remove_Click($importToolStripMenuItem_Click)
+			$updateToolStripMenuItem.remove_Click($updateToolStripMenuItem_Click)
 			$showConfigToolStripMenuItem.remove_Click($showConfigToolStripMenuItem_Click)
 			$reloadConfigToolStripMenuItem.remove_Click($reloadConfigToolStripMenuItem_Click)
 			$logToolStripMenuItem.remove_Click($logToolStripMenuItem_Click)
@@ -3024,10 +3005,10 @@ eqv3erMZd3u793vDd3zL93zTd33b933jd37rt1sHBAA7"
 	#
 	# listview1
 	#
-	$listview1.Location = '12, 27'
+	$listview1.Location = '6, 27'
 	$listview1.MultiSelect = $False
 	$listview1.Name = 'listview1'
-	$listview1.Size = '587, 234'
+	$listview1.Size = (New-Object System.Drawing.Size([int]($MainForm.Size.Width - 20), [int]($MainForm.Size.Height - 60))) #'587, 234'
 	$listview1.TabIndex = 2
 	$listview1.UseCompatibleStateImageBehavior = $False
 	$listview1.add_DoubleClick($listview1_DoubleClick)
@@ -3070,6 +3051,7 @@ eqv3erMZd3u793vDd3zL93zTd33b933jd37rt1sHBAA7"
 	[void]$helpToolStripMenuItem.DropDownItems.Add($logToolStripMenuItem)
 	[void]$helpToolStripMenuItem.DropDownItems.Add($showToolTipsToolStripMenuItem)
 	[void]$helpToolStripMenuItem.DropDownItems.Add($debugModeToolStripMenuItem)
+	[void]$helpToolStripMenuItem.DropDownItems.Add($updateToolStripMenuItem)
 	$helpToolStripMenuItem.Name = 'helpToolStripMenuItem'
 	$helpToolStripMenuItem.Size = '44, 20'
 	$helpToolStripMenuItem.Text = 'Help'
@@ -3094,6 +3076,13 @@ eqv3erMZd3u793vDd3zL93zTd33b933jd37rt1sHBAA7"
 	$exitToolStripMenuItem.Size = '169, 22'
 	$exitToolStripMenuItem.Text = 'Exit'
 	$exitToolStripMenuItem.add_Click($exitToolStripMenuItem_Click)
+	#
+	# updateToolStripMenuItem
+	#
+	$updateToolStripMenuItem.Name = 'updateToolStripMenuItem'
+	$updateToolStripMenuItem.Size = '169, 22'
+	$updateToolStripMenuItem.Text = 'Check for Updates'
+	$updateToolStripMenuItem.add_Click($updateToolStripMenuItem_Click)
 	#
 	# showConfigToolStripMenuItem
 	#
@@ -3254,133 +3243,16 @@ eqv3erMZd3u793vDd3zL93zTd33b933jd37rt1sHBAA7"
 	return $MainForm.ShowDialog()
 
 }
-#endregion Source: MainForm.psf
+#endregion Source: MainForm
 
-#region Source: AddCustomApp.psf
-function Show-AddCustomApp_psf
+#region Source: AddCustomApp
+function Show-AddCustomApp
 {
 
 param (
 	$function = "Add",
 	$RegPath
 )
-
-	#----------------------------------------------
-	#region Define SAPIEN Types
-	#----------------------------------------------
-	try{
-		[FolderBrowserModernDialog] | Out-Null
-	}
-	catch
-	{
-		Add-Type -ReferencedAssemblies ('System.Windows.Forms') -TypeDefinition  @" 
-		using System;
-		using System.Windows.Forms;
-		using System.Reflection;
-
-        namespace SAPIENTypes
-        {
-		    public class FolderBrowserModernDialog : System.Windows.Forms.CommonDialog
-            {
-                private System.Windows.Forms.OpenFileDialog fileDialog;
-                public FolderBrowserModernDialog()
-                {
-                    fileDialog = new System.Windows.Forms.OpenFileDialog();
-                    fileDialog.Filter = "Folders|\n";
-                    fileDialog.AddExtension = false;
-                    fileDialog.CheckFileExists = false;
-                    fileDialog.DereferenceLinks = true;
-                    fileDialog.Multiselect = false;
-                    fileDialog.Title = "Select a folder";
-                }
-
-                public string Title
-                {
-                    get { return fileDialog.Title; }
-                    set { fileDialog.Title = value; }
-                }
-
-                public string InitialDirectory
-                {
-                    get { return fileDialog.InitialDirectory; }
-                    set { fileDialog.InitialDirectory = value; }
-                }
-                
-                public string SelectedPath
-                {
-                    get { return fileDialog.FileName; }
-                    set { fileDialog.FileName = value; }
-                }
-
-                object InvokeMethod(Type type, object obj, string method, object[] parameters)
-                {
-                    MethodInfo methInfo = type.GetMethod(method, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-                    return methInfo.Invoke(obj, parameters);
-                }
-
-                bool ShowOriginalBrowserDialog(IntPtr hwndOwner)
-                {
-                    FolderBrowserDialog folderBrowserDialog = new FolderBrowserDialog();
-                    folderBrowserDialog.Description = this.Title;
-                    folderBrowserDialog.SelectedPath = !string.IsNullOrEmpty(this.SelectedPath) ? this.SelectedPath : this.InitialDirectory;
-                    folderBrowserDialog.ShowNewFolderButton = false;
-                    if (folderBrowserDialog.ShowDialog() == DialogResult.OK)
-                    {
-                        fileDialog.FileName = folderBrowserDialog.SelectedPath;
-                        return true;
-                    }
-                    return false;
-                }
-
-                protected override bool RunDialog(IntPtr hwndOwner)
-                {
-                    if (Environment.OSVersion.Version.Major >= 6)
-                    {      
-                        try
-                        {
-                            bool flag = false;
-                            System.Reflection.Assembly assembly = Assembly.Load("System.Windows.Forms, Version=2.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089");
-                            Type typeIFileDialog = assembly.GetType("System.Windows.Forms.FileDialogNative").GetNestedType("IFileDialog", BindingFlags.NonPublic);
-                            uint num = 0;
-                            object dialog = InvokeMethod(fileDialog.GetType(), fileDialog, "CreateVistaDialog", null);
-                            InvokeMethod(fileDialog.GetType(), fileDialog, "OnBeforeVistaDialog", new object[] { dialog });
-                            uint options = (uint)InvokeMethod(typeof(System.Windows.Forms.FileDialog), fileDialog, "GetOptions", null) | (uint)0x20;
-                            InvokeMethod(typeIFileDialog, dialog, "SetOptions", new object[] { options });
-                            Type vistaDialogEventsType = assembly.GetType("System.Windows.Forms.FileDialog").GetNestedType("VistaDialogEvents", BindingFlags.NonPublic);
-                            object pfde = Activator.CreateInstance(vistaDialogEventsType, fileDialog);
-                            object[] parameters = new object[] { pfde, num };
-                            InvokeMethod(typeIFileDialog, dialog, "Advise", parameters);
-                            num = (uint)parameters[1];
-                            try
-                            {
-                                int num2 = (int)InvokeMethod(typeIFileDialog, dialog, "Show", new object[] { hwndOwner });
-                                flag = 0 == num2;
-                            }
-                            finally
-                            {
-                                InvokeMethod(typeIFileDialog, dialog, "Unadvise", new object[] { num });
-                                GC.KeepAlive(pfde);
-                            }
-                            return flag;
-                        }
-                        catch
-                        {
-                            return ShowOriginalBrowserDialog(hwndOwner);
-                        }
-                    }
-                    else
-                        return ShowOriginalBrowserDialog(hwndOwner);
-                }
-
-                public override void Reset()
-                {
-                    fileDialog.Reset();
-                }
-            }
-       }
-"@ -IgnoreWarnings | Out-Null
-	}
-	#endregion Define SAPIEN Types
 
 	#----------------------------------------------
 	#region Generated Form Objects
@@ -3401,8 +3273,6 @@ param (
 	$labelName = New-Object 'System.Windows.Forms.Label'
 	$textboxDesc = New-Object 'System.Windows.Forms.TextBox'
 	$labelDesc = New-Object 'System.Windows.Forms.Label'
-	$folderbrowsermoderndialog1 = New-Object 'SAPIENTypes.FolderBrowserModernDialog'
-	$folderbrowsermoderndialog2 = New-Object 'SAPIENTypes.FolderBrowserModernDialog'
 	$InitialFormWindowState = New-Object 'System.Windows.Forms.FormWindowState'
 	#endregion Generated Form Objects
 
@@ -3426,9 +3296,9 @@ param (
 				$picturebox1.Image = ([Drawing.Icon]::ExtractAssociatedIcon("$($textboxExecute.Text)").ToBitmap())
 				If ($Error)
 				{
-					Log -text "An error occured while attempting to extract the icon." -Component "AddCustomApp.psf_Check" -Type 3
-					Log -text "$Error" -Component "AddCustomApp.psf_Check" -Type 3
-					Log -text "" -Component "AddCustomApp.psf_Check" -Type 3
+					Log -text "An error occured while attempting to extract the icon." -Component "AddCustomApp_Check" -Type 3
+					Log -text "$Error" -Component "AddCustomApp_Check" -Type 3
+					Log -text "" -Component "AddCustomApp_Check" -Type 3
 				}
 			}
 		}
@@ -3446,8 +3316,10 @@ param (
 		$OpenFileDialog.DereferenceLinks = $false
 		$OpenFileDialog.initialDirectory = $initialDirectory
 		$OpenFileDialog.filter = "All files (*.*)| *.*"
-		$OpenFileDialog.ShowDialog() | Out-Null
-		$OpenFileDialog.filename
+		If ([threading.thread]::CurrentThread.GetApartmentState() -ne 'STA') { $OpenFileDialog.ShowHelp = $true } #workaround for MTA issue not displaying dialog
+		If ($OpenFileDialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $return = ($OpenFileDialog.filename) }
+		Try { $OpenFileDialog.Dispose() } Catch {}
+		Return $return
 	}
 	$formAddCustomApp_Load={
 		If ($function -eq "Add")
@@ -3456,8 +3328,8 @@ param (
 		}
 		elseif ($function -eq "Edit")
 		{
-			Debug-Log -text "Loading in Edit view..." -Component "AddCustomApp.psf_formAddCustomApp_Load" -Type 4
-			Debug-Log -text "Received the RegPath of: $RegPath" -Component "AddCustomApp.psf_formAddCustomApp_Load" -Type 4
+			Log -text "Loading in Edit view..." -Component "AddCustomApp_formAddCustomApp_Load" -Type 4
+			Log -text "Received the RegPath of: $RegPath" -Component "AddCustomApp_formAddCustomApp_Load" -Type 4
 			$buttonAdd.Text = "Save"
 			$formAddCustomApp.Text = "Edit Custom App"
 			$Script:Properties = Get-ItemProperty -Path "$RegPath"
@@ -3474,9 +3346,9 @@ param (
 				$picturebox1.Image = ([Drawing.Icon]::ExtractAssociatedIcon("$($Properties.IconPath)").ToBitmap())
 				If ($Error)
 				{
-					Log -text "An error occured while attempting to extract the custom icon." -Component "AddCustomApp.psf_formAddCustomApp_Load" -Type 3
-					Log -text "$Error" -Component "AddCustomApp.psf_formAddCustomApp_Load" -Type 3
-					Log -text "" -Component "AddCustomApp.psf_formAddCustomApp_Load" -Type 3
+					Log -text "An error occured while attempting to extract the custom icon." -Component "AddCustomApp_formAddCustomApp_Load" -Type 3
+					Log -text "$Error" -Component "AddCustomApp_formAddCustomApp_Load" -Type 3
+					Log -text "" -Component "AddCustomApp_formAddCustomApp_Load" -Type 3
 				}
 				$Script:CustomIcon = "$($Properties.IconPath)"
 				$Script:UseCustomIcon = $true
@@ -3489,9 +3361,9 @@ param (
 				$picturebox1.Image = ([Drawing.Icon]::ExtractAssociatedIcon("$($Properties.LocalPath)").ToBitmap())
 				If ($Error)
 				{
-					Log -text "An error occured while attempting to extract the default icon." -Component "AddCustomApp.psf_formAddCustomApp_Load" -Type 3
-					Log -text "$Error" -Component "AddCustomApp.psf_formAddCustomApp_Load" -Type 3
-					Log -text "" -Component "AddCustomApp.psf_formAddCustomApp_Load" -Type 3
+					Log -text "An error occured while attempting to extract the default icon." -Component "AddCustomApp_formAddCustomApp_Load" -Type 3
+					Log -text "$Error" -Component "AddCustomApp_formAddCustomApp_Load" -Type 3
+					Log -text "" -Component "AddCustomApp_formAddCustomApp_Load" -Type 3
 				}
 				$buttonReset.Visible = $false
 			}
@@ -3511,29 +3383,29 @@ param (
 		$formAddCustomApp.Cursor = 'WaitCursor'
 		If ($function -eq "Add")
 		{
-			Debug-Log -text "Processing Add for $($textboxName.Text)..." -Component "AddCustomApp.psf_buttonAdd_Click" -Type 4
+			Log -text "Processing Add for $($textboxName.Text)..." -Component "AddCustomApp_buttonAdd_Click" -Type 4
 			If ((Test-Path -Path "$Config_RootHKCU$AppShortName\CustomAdd\$($textboxName.Text)\"))
 			{
-				Debug-Log -text "A registry path already exists for the name of this new tool. Unable to add/overwrite/re-use." -Component "AddCustomApp.psf_buttonAdd_Click" -Type 4
-				Show-MessageBox_psf -title "ERROR" -text "A custom tool for the tool $($textboxName.Text) already exists. Unable to add a second one." -boxtype 1 -image 5 -x ($formAddCustomApp.Location.X + ($formAddCustomApp.Size.Width / 2)) -y ($formAddCustomApp.Location.Y + ($formAddCustomApp.Size.Height / 2))
+				Log -text "A registry path already exists for the name of this new tool. Unable to add/overwrite/re-use." -Component "AddCustomApp_buttonAdd_Click" -Type 4
+				Show-MessageBox -title "ERROR" -text "A custom tool for the tool $($textboxName.Text) already exists. Unable to add a second one." -boxtype 1 -image 5 -x ($formAddCustomApp.Location.X + ($formAddCustomApp.Size.Width / 2)) -y ($formAddCustomApp.Location.Y + ($formAddCustomApp.Size.Height / 2))
 			}
 			Else
 			{
-				Debug-Log -text "Verifying the CustomAdd root key exists..." -Component "AddCustomApp.psf_buttonAdd_Click" -Type 4
+				Log -text "Verifying the CustomAdd root key exists..." -Component "AddCustomApp_buttonAdd_Click" -Type 4
 				$Error.Clear()
 				If (!(Test-Path -Path "$Config_RootHKCU$AppShortName\CustomAdd\"))
 				{
-					Debug-Log -text "Creating the CustomAdd root key..." -Component "AddCustomApp.psf_buttonAdd_Click" -Type 4
+					Log -text "Creating the CustomAdd root key..." -Component "AddCustomApp_buttonAdd_Click" -Type 4
 					$Error.Clear()
 					New-Item -Path "$Config_RootHKCU$AppShortName" -Name "CustomAdd"
 					New-ItemProperty -Path "$Config_RootHKCU$AppShortName\CustomAdd" -Name "AllowCustomEntries" -Value "1" -PropertyType "String"
 				}
 				If ($Error)
 				{
-					Log -text "An error occured while attempting to create the root registry key 'CustomAdd'." -Component "AddCustomApp.psf_buttonAdd_Click" -Type 3
-					Log -text "$Error" -Component "AddCustomApp.psf_buttonAdd_Click" -Type 3
-					Log -text "" -Component "AddCustomApp.psf_buttonAdd_Click" -Type 3
-					Show-MessageBox_psf -title "ERROR" -text "An error occured while attempting to add the new custom tool.`n`nSee log for additional details." -boxtype 1 -image 5 -x ($formAddCustomApp.Location.X + ($formAddCustomApp.Size.Width / 2)) -y ($formAddCustomApp.Location.Y + ($formAddCustomApp.Size.Height / 2))
+					Log -text "An error occured while attempting to create the root registry key 'CustomAdd'." -Component "AddCustomApp_buttonAdd_Click" -Type 3
+					Log -text "$Error" -Component "AddCustomApp_buttonAdd_Click" -Type 3
+					Log -text "" -Component "AddCustomApp_buttonAdd_Click" -Type 3
+					Show-MessageBox -title "ERROR" -text "An error occured while attempting to add the new custom tool.`n`nSee log for additional details." -boxtype 1 -image 5 -x ($formAddCustomApp.Location.X + ($formAddCustomApp.Size.Width / 2)) -y ($formAddCustomApp.Location.Y + ($formAddCustomApp.Size.Height / 2))
 				}
 				Else
 				{
@@ -3543,7 +3415,7 @@ param (
 						$textboxArgs.Text = "-windowstyle hidden $($textboxExecute.Text)"
 						$textboxExecute.Text = "C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"
 					}
-					Debug-Log -text "Creating CustomAdd properties..." -Component "AddCustomApp.psf_buttonAdd_Click" -Type 4
+					Log -text "Creating CustomAdd properties..." -Component "AddCustomApp_buttonAdd_Click" -Type 4
 					$Error.Clear()
 					New-Item -Path "$Config_RootHKCU$AppShortName\CustomAdd" -Name "$($textboxName.Text)"
 					New-ItemProperty -Path "$Config_RootHKCU$AppShortName\CustomAdd\$($textboxName.Text)" -Name "Name" -Value "$($textboxName.Text)" -PropertyType "String"
@@ -3562,67 +3434,67 @@ param (
 					}
 					If ($Error)
 					{
-						Log -text "An error occured while attempting to add the 'Name' and 'LocalPath' items to the registry." -Component "AddCustomApp.psf_buttonAdd_Click" -Type 3
-						Log -text "$Error" -Component "AddCustomApp.psf_buttonAdd_Click" -Type 3
-						Log -text "" -Component "AddCustomApp.psf_buttonAdd_Click" -Type 3
-						Show-MessageBox_psf -title "ERROR" -text "An error occured while attempting to add the new custom tool.`n`nSee log for additional details." -boxtype 1 -image 5 -x ($formAddCustomApp.Location.X + ($formAddCustomApp.Size.Width / 2)) -y ($formAddCustomApp.Location.Y + ($formAddCustomApp.Size.Height / 2))
+						Log -text "An error occured while attempting to add the 'Name' and 'LocalPath' items to the registry." -Component "AddCustomApp_buttonAdd_Click" -Type 3
+						Log -text "$Error" -Component "AddCustomApp_buttonAdd_Click" -Type 3
+						Log -text "" -Component "AddCustomApp_buttonAdd_Click" -Type 3
+						Show-MessageBox -title "ERROR" -text "An error occured while attempting to add the new custom tool.`n`nSee log for additional details." -boxtype 1 -image 5 -x ($formAddCustomApp.Location.X + ($formAddCustomApp.Size.Width / 2)) -y ($formAddCustomApp.Location.Y + ($formAddCustomApp.Size.Height / 2))
 					}
 					Else
 					{
-						Show-MessageBox_psf -title "" -text "Successfully added tool." -boxtype 1 -image 2 -x ($formAddCustomApp.Location.X + ($formAddCustomApp.Size.Width / 2)) -y ($formAddCustomApp.Location.Y + ($formAddCustomApp.Size.Height / 2))
+						Show-MessageBox -title "" -text "Successfully added tool." -boxtype 1 -image 2 -x ($formAddCustomApp.Location.X + ($formAddCustomApp.Size.Width / 2)) -y ($formAddCustomApp.Location.Y + ($formAddCustomApp.Size.Height / 2))
 					}
 				}
 			}	
 		}
 		elseif ($function -eq "Edit")
 		{
-			Debug-Log -text "Processing Edit for $($Properties.Name)..." -Component "AddCustomApp.psf_buttonAdd_Click" -Type 4
+			Log -text "Processing Edit for $($Properties.Name)..." -Component "AddCustomApp_buttonAdd_Click" -Type 4
 			If (!($Properties.Name -eq "$($textboxName.Text)"))
 			{
-				Debug-Log -text "Looks like the name changed. Ensuring new name isn't already in use."
+				Log -text "Looks like the name changed. Ensuring new name isn't already in use."
 				If ((Test-Path -Path "$Config_RootHKCU$AppShortName\CustomAdd\$($textboxName.Text)\"))
 				{
-					Debug-Log -text "The new name is already in use." -Component "AddCustomApp.psf_buttonAdd_Click" -Type 4
-					Show-MessageBox_psf -title "ERROR" -text "The name you're trying to use is already in use." -boxtype 1 -image 5 -x ($formAddCustomApp.Location.X + ($formAddCustomApp.Size.Width / 2)) -y ($formAddCustomApp.Location.Y + ($formAddCustomApp.Size.Height / 2))
+					Log -text "The new name is already in use." -Component "AddCustomApp_buttonAdd_Click" -Type 4
+					Show-MessageBox -title "ERROR" -text "The name you're trying to use is already in use." -boxtype 1 -image 5 -x ($formAddCustomApp.Location.X + ($formAddCustomApp.Size.Width / 2)) -y ($formAddCustomApp.Location.Y + ($formAddCustomApp.Size.Height / 2))
 				}
 				Else
 				{
-					Debug-Log -text "Updating Name..." -Component "AddCustomApp.psf_buttonAdd_Click" -Type 4
+					Log -text "Updating Name..." -Component "AddCustomApp_buttonAdd_Click" -Type 4
 					$Error.Clear()
 					Rename-Item -Path "$RegPath" -NewName "$($textboxName.Text)"
 					If ($Error)
 					{
-						Log -text "An error occured while attempting to rename the key." -Component "AddCustomApp.psf_buttonAdd_Click" -Type 3
-						Log -text "$Error" -Component "AddCustomApp.psf_buttonAdd_Click" -Type 3
-						Log -text "" -Component "AddCustomApp.psf_buttonAdd_Click" -Type 3
+						Log -text "An error occured while attempting to rename the key." -Component "AddCustomApp_buttonAdd_Click" -Type 3
+						Log -text "$Error" -Component "AddCustomApp_buttonAdd_Click" -Type 3
+						Log -text "" -Component "AddCustomApp_buttonAdd_Click" -Type 3
 					}
 					Else
 					{
-						Debug-Log -text "Updating the RegPath value..." -Component "AddCustomApp.psf_buttonAdd_Click" -Type 4
+						Log -text "Updating the RegPath value..." -Component "AddCustomApp_buttonAdd_Click" -Type 4
 						$RegPath = "$Config_RootHKCU$AppShortName\CustomAdd\$($textboxName.Text)\"
-						Debug-Log -text "Renaming the Name item..." -Component "AddCustomApp.psf_buttonAdd_Click" -Type 4
+						Log -text "Renaming the Name item..." -Component "AddCustomApp_buttonAdd_Click" -Type 4
 						$Error.Clear()
 						Set-ItemProperty -Path "$RegPath" -Name "Name" -Value "$($textboxName.Text)"
 						If ($Error)
 						{
-							Log -text "An error occured while attempting to update the Name item." -Component "AddCustomApp.psf_buttonAdd_Click" -Type 3
-							Log -text "$Error" -Component "AddCustomApp.psf_buttonAdd_Click" -Type 3
-							Log -text "" -Component "AddCustomApp.psf_buttonAdd_Click" -Type 3
+							Log -text "An error occured while attempting to update the Name item." -Component "AddCustomApp_buttonAdd_Click" -Type 3
+							Log -text "$Error" -Component "AddCustomApp_buttonAdd_Click" -Type 3
+							Log -text "" -Component "AddCustomApp_buttonAdd_Click" -Type 3
 						}
 					}
 					
 				}
 			}
-			Debug-Log -text "Updating LocalPath item..." -Component "AddCustomApp.psf_buttonAdd_Click" -Type 4
+			Log -text "Updating LocalPath item..." -Component "AddCustomApp_buttonAdd_Click" -Type 4
 			$Error.Clear()
 			Set-ItemProperty -Path "$RegPath" -Name "LocalPath" -Value "$($textboxExecute.Text)"
 			If ($Error)
 			{
-				Log -text "An error occured while attempting to update the LocalPath item." -Component "AddCustomApp.psf_buttonAdd_Click" -Type 3
-				Log -text "$Error" -Component "AddCustomApp.psf_buttonAdd_Click" -Type 3
-				Log -text "" -Component "AddCustomApp.psf_buttonAdd_Click" -Type 3
+				Log -text "An error occured while attempting to update the LocalPath item." -Component "AddCustomApp_buttonAdd_Click" -Type 3
+				Log -text "$Error" -Component "AddCustomApp_buttonAdd_Click" -Type 3
+				Log -text "" -Component "AddCustomApp_buttonAdd_Click" -Type 3
 			}
-			Debug-Log -text "Updating Args item..." -Component "AddCustomApp.psf_buttonAdd_Click" -Type 4
+			Log -text "Updating Args item..." -Component "AddCustomApp_buttonAdd_Click" -Type 4
 			$Error.Clear()
 			If ($textboxArgs.Text.Length -ge 1)
 			{
@@ -3644,11 +3516,11 @@ param (
 			}
 			If ($Error)
 			{
-				Log -text "An error occured while attempting to update the Args item." -Component "AddCustomApp.psf_buttonAdd_Click" -Type 3
-				Log -text "$Error" -Component "AddCustomApp.psf_buttonAdd_Click" -Type 3
-				Log -text "" -Component "AddCustomApp.psf_buttonAdd_Click" -Type 3
+				Log -text "An error occured while attempting to update the Args item." -Component "AddCustomApp_buttonAdd_Click" -Type 3
+				Log -text "$Error" -Component "AddCustomApp_buttonAdd_Click" -Type 3
+				Log -text "" -Component "AddCustomApp_buttonAdd_Click" -Type 3
 			}
-			Debug-Log -text "Updating Description item..." -Component "AddCustomApp.psf_buttonAdd_Click" -Type 4
+			Log -text "Updating Description item..." -Component "AddCustomApp_buttonAdd_Click" -Type 4
 			$Error.Clear()
 			If ($textboxDesc.Text.Length -ge 1)
 			{
@@ -3670,11 +3542,11 @@ param (
 			}
 			If ($Error)
 			{
-				Log -text "An error occured while attempting to update the Description item." -Component "AddCustomApp.psf_buttonAdd_Click" -Type 3
-				Log -text "$Error" -Component "AddCustomApp.psf_buttonAdd_Click" -Type 3
-				Log -text "" -Component "AddCustomApp.psf_buttonAdd_Click" -Type 3
+				Log -text "An error occured while attempting to update the Description item." -Component "AddCustomApp_buttonAdd_Click" -Type 3
+				Log -text "$Error" -Component "AddCustomApp_buttonAdd_Click" -Type 3
+				Log -text "" -Component "AddCustomApp_buttonAdd_Click" -Type 3
 			}
-			Debug-Log -text "Updating IconPath item..." -Component "AddCustomApp.psf_buttonAdd_Click" -Type 4
+			Log -text "Updating IconPath item..." -Component "AddCustomApp_buttonAdd_Click" -Type 4
 			$Error.Clear()
 			If ($UseCustomIcon -eq $true)
 			{
@@ -3696,9 +3568,9 @@ param (
 			}
 			If ($Error)
 			{
-				Log -text "An error occured while attempting to update the IconPath item." -Component "AddCustomApp.psf_buttonAdd_Click" -Type 3
-				Log -text "$Error" -Component "AddCustomApp.psf_buttonAdd_Click" -Type 3
-				Log -text "" -Component "AddCustomApp.psf_buttonAdd_Click" -Type 3
+				Log -text "An error occured while attempting to update the IconPath item." -Component "AddCustomApp_buttonAdd_Click" -Type 3
+				Log -text "$Error" -Component "AddCustomApp_buttonAdd_Click" -Type 3
+				Log -text "" -Component "AddCustomApp_buttonAdd_Click" -Type 3
 			}
 		}
 		$formAddCustomApp.Cursor = 'Default'
@@ -3716,19 +3588,23 @@ param (
 		}
 	}
 	$buttonBrowseIcon_Click={
-		Debug-Log -text "The custom icon Browse button was clicked." -Component "AddCustomApp.psf_buttonBrowseIcon_Click" -Type 4
+		Log -text "The custom icon Browse button was clicked." -Component "AddCustomApp_buttonBrowseIcon_Click" -Type 4
 		Function Get-FileName($initialDirectory)
 		{
+			[System.Reflection.Assembly]::LoadWithPartialName("System.windows.forms") | Out-Null
 			$OpenFileDialog = New-Object System.Windows.Forms.OpenFileDialog
 			$OpenFileDialog.DereferenceLinks = $false
 			$OpenFileDialog.initialDirectory = $initialDirectory
-			$OpenFileDialog.ShowDialog() | Out-Null
-			$OpenFileDialog.filename
+			$OpenFileDialog.filter = "All files (*.*)| *.*"
+			If ([threading.thread]::CurrentThread.GetApartmentState() -ne 'STA') { $OpenFileDialog.ShowHelp = $true } #workaround for MTA issue not displaying dialog
+			If ($OpenFileDialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $return = ($OpenFileDialog.filename) }
+			Try { $OpenFileDialog.Dispose() } Catch {}
+			Return $return
 		}
 		$CustomIconPath = Get-FileName -initialDirectory "C:\"
 		If ((Test-Path $CustomIconPath))
 		{
-			Debug-Log -text "Received custom icon path: $CustomIconPath" -Component "AddCustomApp.psf_buttonBrowseIcon_Click" -Type 4
+			Log -text "Received custom icon path: $CustomIconPath" -Component "AddCustomApp_buttonBrowseIcon_Click" -Type 4
 			$picturebox1.Image = ([Drawing.Icon]::ExtractAssociatedIcon("$CustomIconPath").ToBitmap())
 			$Script:CustomIcon = $CustomIconPath
 			$Script:UseCustomIcon = $true
@@ -3736,18 +3612,18 @@ param (
 		}
 		Else
 		{
-			Debug-Log -text "No path received." -Component "AddCustomApp.psf_buttonBrowseIcon_Click" -Type 4
+			Log -text "No path received." -Component "AddCustomApp_buttonBrowseIcon_Click" -Type 4
 		}
 	}
 	$buttonReset_Click={
-		Debug-Log -text "Resetting icon back to the default icon..." -Component "AddCustomApp.psf_buttonReset_Click" -Type 4
+		Log -text "Resetting icon back to the default icon..." -Component "AddCustomApp_buttonReset_Click" -Type 4
 		$Error.Clear()
 		$picturebox1.Image = ([Drawing.Icon]::ExtractAssociatedIcon("$($textboxExecute.Text)").ToBitmap())
 		If ($Error)
 		{
-			Log -text "An error occured while attempting to extract the icon." -Component "AddCustomApp.psf_buttonReset_Click" -Type 3
-			Log -text "$Error" -Component "AddCustomApp.psf_buttonReset_Click" -Type 3
-			Log -text "" -Component "AddCustomApp.psf_buttonReset_Click" -Type 3
+			Log -text "An error occured while attempting to extract the icon." -Component "AddCustomApp_buttonReset_Click" -Type 3
+			Log -text "$Error" -Component "AddCustomApp_buttonReset_Click" -Type 3
+			Log -text "" -Component "AddCustomApp_buttonReset_Click" -Type 3
 		}
 		$Script:UseCustomIcon = $false
 		Clear-Variable -Scope Script -Name CustomIcon
@@ -3965,14 +3841,7 @@ param (
 	$labelDesc.TabIndex = 0
 	$labelDesc.Text = 'Description:'
 	$labelDesc.TextAlign = 'MiddleRight'
-	#
-	# folderbrowsermoderndialog1
-	#
-	$folderbrowsermoderndialog1.InitialDirectory = 'C:\'
-	$folderbrowsermoderndialog1.Title = 'Select a file'
-	#
-	# folderbrowsermoderndialog2
-	#
+
 	$formAddCustomApp.ResumeLayout()
 	#endregion Generated Form Code
 
@@ -3990,10 +3859,10 @@ param (
 	return $formAddCustomApp.ShowDialog()
 
 }
-#endregion Source: AddCustomApp.psf
+#endregion Source: AddCustomApp
 
-#region Source: Log.psf
-function Show-Log_psf
+#region Source: Log
+function Show-Log
 {
 	#----------------------------------------------
 	#region Generated Form Objects
@@ -4045,7 +3914,6 @@ function Show-Log_psf
 		#Store the control values
 		$script:Log_richtextbox1 = $richtextbox1.Text
 	}
-
 	
 	$Form_Cleanup_FormClosed=
 	{
@@ -4132,10 +4000,10 @@ function Show-Log_psf
 	return $formLogForCurrentSession.ShowDialog()
 
 }
-#endregion Source: Log.psf
+#endregion Source: Log
 
-#region Source: MessageBox.psf
-function Show-MessageBox_psf
+#region Source: MessageBox
+function Show-MessageBox
 {
 
 param (
@@ -4168,14 +4036,14 @@ param (
 	#----------------------------------------------
 	
 	$formMessageBox_Load={
-		Debug-Log -text "Loading MessageBox..." -Component "MessageBox.psf_formMessageBox_Load" -Type 4
-		Debug-Log -text "Title: $Title" -Component "MessageBox.psf_formMessageBox_Load" -Type 4
-		Debug-Log -text "Text: $text" -Component "MessageBox.psf_formMessageBox_Load" -Type 4
-		Debug-Log -text "BoxType: $boxtype" -Component "MessageBox.psf_formMessageBox_Load" -Type 4
-		Debug-Log -text "Image: $image" -Component "MessageBox.psf_formMessageBox_Load" -Type 4
-		Debug-Log -text "AutoClose: $autoclose" -Component "MessageBox.psf_formMessageBox_Load" -Type 4
-		Debug-Log -text "X: $x" -Component "MessageBox.psf_formMessageBox_Load" -Type 4
-		Debug-Log -text "Y: $y" -Component "MessageBox.psf_formMessageBox_Load" -Type 4
+		Log -text "Loading MessageBox..." -Component "MessageBox_formMessageBox_Load" -Type 4
+		Log -text "Title: $Title" -Component "MessageBox_formMessageBox_Load" -Type 4
+		Log -text "Text: $text" -Component "MessageBox_formMessageBox_Load" -Type 4
+		Log -text "BoxType: $boxtype" -Component "MessageBox_formMessageBox_Load" -Type 4
+		Log -text "Image: $image" -Component "MessageBox_formMessageBox_Load" -Type 4
+		Log -text "AutoClose: $autoclose" -Component "MessageBox_formMessageBox_Load" -Type 4
+		Log -text "X: $x" -Component "MessageBox_formMessageBox_Load" -Type 4
+		Log -text "Y: $y" -Component "MessageBox_formMessageBox_Load" -Type 4
 		If (($x) -and ($y))
 		{
 			[int]$newX = ($x - ($formMessageBox.Width / 2))
@@ -5617,10 +5485,10 @@ Af8DAA7/AeABAAEBA/8B/AIAAv8DAA7/AfwBAAEPBP8BgAEHAv8DAA//AeEJ/wMACw=='))
 	return $formMessageBox.ShowDialog()
 
 }
-#endregion Source: MessageBox.psf
+#endregion Source: MessageBox
 
-#region Source: ShowCurrentConfig.psf
-function Show-ShowCurrentConfig_psf
+#region Source: ShowCurrentConfig
+function Show-ShowCurrentConfig
 {
 	#----------------------------------------------
 	#region Generated Form Objects
@@ -5649,7 +5517,7 @@ function Show-ShowCurrentConfig_psf
 	$datagridview1_CellEndEdit=[System.Windows.Forms.DataGridViewCellEventHandler]{
 		If ($LockedItems -notcontains "$($datagridview1.CurrentRow.Cells['Attribute'].Value)")
 		{
-			Debug-Log -text "Updating attribute `"$($datagridview1.CurrentRow.Cells['Attribute'].Value)`" for config `"$($datagridview1.CurrentRow.Cells['Config'].Value)`"" -Component "ShowCurrentConfig.psf_datagridview1_CellEndEdit" -Type 4
+			Log -text "Updating attribute `"$($datagridview1.CurrentRow.Cells['Attribute'].Value)`" for config `"$($datagridview1.CurrentRow.Cells['Config'].Value)`"" -Component "ShowCurrentConfig_datagridview1_CellEndEdit" -Type 4
 			If ($datagridview1.CurrentRow.Cells['Value'].Value.ToString().Length -ge 1)
 			{
 				If (((Get-ItemProperty "$Config_RootHKCU$($datagridview1.CurrentRow.Cells['Config'].Value)\")."$($datagridview1.CurrentRow.Cells['Attribute'].Value)"))
@@ -5658,14 +5526,14 @@ function Show-ShowCurrentConfig_psf
 					Set-ItemProperty -Path "$Config_RootHKCU$($datagridview1.CurrentRow.Cells['Config'].Value)" -Name "$($datagridview1.CurrentRow.Cells['Attribute'].Value)" -Value "$($datagridview1.CurrentRow.Cells['Value'].Value)"
 					If ($Error)
 					{
-						Log -text "An error occured while attempting to update a user customized attribute setting." -Component "ShowCurrentConfig.psf_datagridview1_CellEndEdit" -Type 3
-						Log -text "$Error" -Component "ShowCurrentConfig.psf_datagridview1_CellEndEdit" -Type 3
-						Log -text "" -Component "ShowCurrentConfig.psf_datagridview1_CellEndEdit" -Type 3
-						Show-MessageBox_psf -title "ERROR" -text "An error occured. See log for details." -boxtype 1 -image 5 -x ($formCurrentConfig.Location.X + ($formCurrentConfig.Size.Width / 2)) -y ($formCurrentConfig.Location.Y + ($formCurrentConfig.Size.Height / 2))
+						Log -text "An error occured while attempting to update a user customized attribute setting." -Component "ShowCurrentConfig_datagridview1_CellEndEdit" -Type 3
+						Log -text "$Error" -Component "ShowCurrentConfig_datagridview1_CellEndEdit" -Type 3
+						Log -text "" -Component "ShowCurrentConfig_datagridview1_CellEndEdit" -Type 3
+						Show-MessageBox -title "ERROR" -text "An error occured. See log for details." -boxtype 1 -image 5 -x ($formCurrentConfig.Location.X + ($formCurrentConfig.Size.Width / 2)) -y ($formCurrentConfig.Location.Y + ($formCurrentConfig.Size.Height / 2))
 					}
 					Else
 					{
-						Debug-Log -text "Successfully updated the custom setting." -Component "ShowCurrentConfig.psf_datagridview1_CellEndEdit" -Type 4
+						Log -text "Successfully updated the custom setting." -Component "ShowCurrentConfig_datagridview1_CellEndEdit" -Type 4
 					}
 				}
 				Else
@@ -5674,34 +5542,34 @@ function Show-ShowCurrentConfig_psf
 					New-ItemProperty -Path "$Config_RootHKCU$($datagridview1.CurrentRow.Cells['Config'].Value)" -Name "$($datagridview1.CurrentRow.Cells['Attribute'].Value)" -Value "$($datagridview1.CurrentRow.Cells['Value'].Value)"
 					If ($Error)
 					{
-						Log -text "An error occured while attempting to create a user customized attribute setting." -Component "ShowCurrentConfig.psf_datagridview1_CellEndEdit" -Type 3
-						Log -text "$Error" -Component "ShowCurrentConfig.psf_datagridview1_CellEndEdit" -Type 3
-						Log -text "" -Component "ShowCurrentConfig.psf_datagridview1_CellEndEdit" -Type 3
-						Show-MessageBox_psf -title "ERROR" -text "An error occured. See log for details." -boxtype 1 -image 5 -x ($formCurrentConfig.Location.X + ($formCurrentConfig.Size.Width / 2)) -y ($formCurrentConfig.Location.Y + ($formCurrentConfig.Size.Height / 2))
+						Log -text "An error occured while attempting to create a user customized attribute setting." -Component "ShowCurrentConfig_datagridview1_CellEndEdit" -Type 3
+						Log -text "$Error" -Component "ShowCurrentConfig_datagridview1_CellEndEdit" -Type 3
+						Log -text "" -Component "ShowCurrentConfig_datagridview1_CellEndEdit" -Type 3
+						Show-MessageBox -title "ERROR" -text "An error occured. See log for details." -boxtype 1 -image 5 -x ($formCurrentConfig.Location.X + ($formCurrentConfig.Size.Width / 2)) -y ($formCurrentConfig.Location.Y + ($formCurrentConfig.Size.Height / 2))
 					}
 					Else
 					{
-						Debug-Log -text "Successfully created the custom setting." -Component "ShowCurrentConfig.psf_datagridview1_CellEndEdit" -Type 4
+						Log -text "Successfully created the custom setting." -Component "ShowCurrentConfig_datagridview1_CellEndEdit" -Type 4
 					}
 				}	
 			}
 			Else
 			{
-				Debug-Log -text "New value is blank. If user customized value exists, it will be deleted." -Component "ShowCurrentConfig.psf_datagridview1_CellEndEdit" -Type 4
+				Log -text "New value is blank. If user customized value exists, it will be deleted." -Component "ShowCurrentConfig_datagridview1_CellEndEdit" -Type 4
 				If (((Get-ItemProperty "$Config_RootHKCU$($datagridview1.CurrentRow.Cells['Config'].Value)\")."$($datagridview1.CurrentRow.Cells['Attribute'].Value)"))
 				{
 					$Error.Clear()
 					Remove-ItemProperty -Path "$Config_RootHKCU$($datagridview1.CurrentRow.Cells['Config'].Value)" -Name "$($datagridview1.CurrentRow.Cells['Attribute'].Value)" -Force
 					If ($Error)
 					{
-						Log -text "An error occured while attempting to delete a user customized attribute setting." -Component "ShowCurrentConfig.psf_datagridview1_CellEndEdit" -Type 3
-						Log -text "$Error" -Component "ShowCurrentConfig.psf_datagridview1_CellEndEdit" -Type 3
-						Log -text "" -Component "ShowCurrentConfig.psf_datagridview1_CellEndEdit" -Type 3
-						Show-MessageBox_psf -title "ERROR" -text "An error occured. See log for details." -boxtype 1 -image 5 -x ($formCurrentConfig.Location.X + ($formCurrentConfig.Size.Width / 2)) -y ($formCurrentConfig.Location.Y + ($formCurrentConfig.Size.Height / 2))
+						Log -text "An error occured while attempting to delete a user customized attribute setting." -Component "ShowCurrentConfig_datagridview1_CellEndEdit" -Type 3
+						Log -text "$Error" -Component "ShowCurrentConfig_datagridview1_CellEndEdit" -Type 3
+						Log -text "" -Component "ShowCurrentConfig_datagridview1_CellEndEdit" -Type 3
+						Show-MessageBox -title "ERROR" -text "An error occured. See log for details." -boxtype 1 -image 5 -x ($formCurrentConfig.Location.X + ($formCurrentConfig.Size.Width / 2)) -y ($formCurrentConfig.Location.Y + ($formCurrentConfig.Size.Height / 2))
 					}
 					Else
 					{
-						Debug-Log -text "Successfully deleted the custom setting." -Component "ShowCurrentConfig.psf_datagridview1_CellEndEdit" -Type 4
+						Log -text "Successfully deleted the custom setting." -Component "ShowCurrentConfig_datagridview1_CellEndEdit" -Type 4
 					}
 				}
 			}
@@ -5710,7 +5578,7 @@ function Show-ShowCurrentConfig_psf
 	$datagridview1_CellBeginEdit=[System.Windows.Forms.DataGridViewCellCancelEventHandler]{
 		If ($LockedItems -contains "$($datagridview1.CurrentRow.Cells['Attribute'].Value)")
 		{
-			Show-MessageBox_psf -title "ERROR" -text "This attribute is read only." -boxtype 1 -image 5 -x ($formCurrentConfig.Location.X + ($formCurrentConfig.Size.Width / 2)) -y ($formCurrentConfig.Location.Y + ($formCurrentConfig.Size.Height / 2))
+			Show-MessageBox -title "ERROR" -text "This attribute is read only." -boxtype 1 -image 5 -x ($formCurrentConfig.Location.X + ($formCurrentConfig.Size.Width / 2)) -y ($formCurrentConfig.Location.Y + ($formCurrentConfig.Size.Height / 2))
 			$datagridview1.EndEdit()
 		}
 	}
@@ -5764,7 +5632,7 @@ function Show-ShowCurrentConfig_psf
 	$formCurrentConfig.Controls.Add($datagridview1)
 	$formCurrentConfig.AutoScaleDimensions = '6, 13'
 	$formCurrentConfig.AutoScaleMode = 'Font'
-	$formCurrentConfig.ClientSize = '670, 504'
+	$formCurrentConfig.ClientSize = '670, 314'
 	$formCurrentConfig.ControlBox = $False
 	$formCurrentConfig.Name = 'formCurrentConfig'
 	$formCurrentConfig.ShowIcon = $False
@@ -5777,7 +5645,7 @@ function Show-ShowCurrentConfig_psf
 	#
 	# buttonClose
 	#
-	$buttonClose.Location = '295, 478'
+	$buttonClose.Location = '295, 286'
 	$buttonClose.Name = 'buttonClose'
 	$buttonClose.Size = '75, 23'
 	$buttonClose.TabIndex = 1
@@ -5795,7 +5663,7 @@ function Show-ShowCurrentConfig_psf
 	$datagridview1.Location = '12, 12'
 	$datagridview1.Name = 'datagridview1'
 	$datagridview1.RowHeadersWidthSizeMode = 'AutoSizeToAllHeaders'
-	$datagridview1.Size = '646, 460'
+	$datagridview1.Size = '646, 268'
 	$datagridview1.TabIndex = 0
 	$datagridview1.add_CellBeginEdit($datagridview1_CellBeginEdit)
 	$datagridview1.add_CellEndEdit($datagridview1_CellEndEdit)
@@ -5816,9 +5684,9 @@ function Show-ShowCurrentConfig_psf
 	return $formCurrentConfig.ShowDialog()
 
 }
-#endregion Source: ShowCurrentConfig.psf
+#endregion Source: ShowCurrentConfig
 
-#region Source: ShowNewStuff.psf
+#region Source: ShowNewStuff
 function Show-NewStuff
 {
 	#----------------------------------------------
@@ -5866,14 +5734,14 @@ function Show-NewStuff
 				Set-ItemProperty -Path "$Config_RootHKCU$AppShortName" -Name "ShowNewStuff" -Value "false"
 				If ($Error)
 				{
-					Log -text "An error occured while attempting to update the ShowNewStuff attribute for the tool in the registry." -Component "ShowNewStuff.psf_checkboxDontShowInTheFuture_CheckedChanged" -Type 3
-					Log -text "$Error" -Component "ShowNewStuff.psf_checkboxDontShowInTheFuture_CheckedChanged" -Type 3
-					Log -text "" -Component "ShowNewStuff.psf_checkboxDontShowInTheFuture_CheckedChanged" -Type 3
-					Show-MessageBox_psf -title "ERROR" -text "An error occured. See log for details." -boxtype 1 -image 5 -x ($formNewStuff.Location.X + ($formNewStuff.Size.Width / 2)) -y ($formNewStuff.Location.Y + ($formNewStuff.Size.Height / 2))
+					Log -text "An error occured while attempting to update the ShowNewStuff attribute for the tool in the registry." -Component "ShowNewStuff_checkboxDontShowInTheFuture_CheckedChanged" -Type 3
+					Log -text "$Error" -Component "ShowNewStuff_checkboxDontShowInTheFuture_CheckedChanged" -Type 3
+					Log -text "" -Component "ShowNewStuff_checkboxDontShowInTheFuture_CheckedChanged" -Type 3
+					Show-MessageBox -title "ERROR" -text "An error occured. See log for details." -boxtype 1 -image 5 -x ($formNewStuff.Location.X + ($formNewStuff.Size.Width / 2)) -y ($formNewStuff.Location.Y + ($formNewStuff.Size.Height / 2))
 				}
 				Else
 				{
-					Debug-Log -text "Successfully updated the ShowNewStuff attribute." -Component "ShowNewStuff.psf_checkboxDontShowInTheFuture_CheckedChanged" -Type 4
+					Log -text "Successfully updated the ShowNewStuff attribute." -Component "ShowNewStuff_checkboxDontShowInTheFuture_CheckedChanged" -Type 4
 				}
 			}
 			Else
@@ -5882,14 +5750,14 @@ function Show-NewStuff
 				New-ItemProperty -Path "$Config_RootHKCU$AppShortName" -Name "ShowNewStuff" -Value "false"
 				If ($Error)
 				{
-					Log -text "An error occured while attempting to create the ShowNewStuff attribute for the tool in the registry." -Component "ShowNewStuff.psf_checkboxDontShowInTheFuture_CheckedChanged" -Type 3
-					Log -text "$Error" -Component "ShowNewStuff.psf_checkboxDontShowInTheFuture_CheckedChanged" -Type 3
-					Log -text "" -Component "ShowNewStuff.psf_checkboxDontShowInTheFuture_CheckedChanged" -Type 3
-					Show-MessageBox_psf -title "ERROR" -text "An error occured. See log for details." -boxtype 1 -image 5 -x ($formNewStuff.Location.X + ($formNewStuff.Size.Width / 2)) -y ($formNewStuff.Location.Y + ($formNewStuff.Size.Height / 2))
+					Log -text "An error occured while attempting to create the ShowNewStuff attribute for the tool in the registry." -Component "ShowNewStuff_checkboxDontShowInTheFuture_CheckedChanged" -Type 3
+					Log -text "$Error" -Component "ShowNewStuff_checkboxDontShowInTheFuture_CheckedChanged" -Type 3
+					Log -text "" -Component "ShowNewStuff_checkboxDontShowInTheFuture_CheckedChanged" -Type 3
+					Show-MessageBox -title "ERROR" -text "An error occured. See log for details." -boxtype 1 -image 5 -x ($formNewStuff.Location.X + ($formNewStuff.Size.Width / 2)) -y ($formNewStuff.Location.Y + ($formNewStuff.Size.Height / 2))
 				}
 				Else
 				{
-					Debug-Log -text "Successfully created the ShowNewStuff attribute" -Component "ShowNewStuff.psf_checkboxDontShowInTheFuture_CheckedChanged" -Type 4
+					Log -text "Successfully created the ShowNewStuff attribute" -Component "ShowNewStuff_checkboxDontShowInTheFuture_CheckedChanged" -Type 4
 				}
 			}
 		}
@@ -5901,14 +5769,14 @@ function Show-NewStuff
 				Set-ItemProperty -Path "$Config_RootHKCU$AppShortName" -Name "ShowNewStuff" -Value "true"
 				If ($Error)
 				{
-					Log -text "An error occured while attempting to update the ShowNewStuff attribute for the tool in the registry." -Component "ShowNewStuff.psf_checkboxDontShowInTheFuture_CheckedChanged" -Type 3
-					Log -text "$Error" -Component "ShowNewStuff.psf_checkboxDontShowInTheFuture_CheckedChanged" -Type 3
-					Log -text "" -Component "ShowNewStuff.psf_checkboxDontShowInTheFuture_CheckedChanged" -Type 3
-					Show-MessageBox_psf -title "ERROR" -text "An error occured. See log for details." -boxtype 1 -image 5 -x ($formNewStuff.Location.X + ($formNewStuff.Size.Width / 2)) -y ($formNewStuff.Location.Y + ($formNewStuff.Size.Height / 2))
+					Log -text "An error occured while attempting to update the ShowNewStuff attribute for the tool in the registry." -Component "ShowNewStuff_checkboxDontShowInTheFuture_CheckedChanged" -Type 3
+					Log -text "$Error" -Component "ShowNewStuff_checkboxDontShowInTheFuture_CheckedChanged" -Type 3
+					Log -text "" -Component "ShowNewStuff_checkboxDontShowInTheFuture_CheckedChanged" -Type 3
+					Show-MessageBox -title "ERROR" -text "An error occured. See log for details." -boxtype 1 -image 5 -x ($formNewStuff.Location.X + ($formNewStuff.Size.Width / 2)) -y ($formNewStuff.Location.Y + ($formNewStuff.Size.Height / 2))
 				}
 				Else
 				{
-					Debug-Log -text "Successfully updated the ShowNewStuff attribute." -Component "ShowNewStuff.psf_checkboxDontShowInTheFuture_CheckedChanged" -Type 4
+					Log -text "Successfully updated the ShowNewStuff attribute." -Component "ShowNewStuff_checkboxDontShowInTheFuture_CheckedChanged" -Type 4
 				}
 			}
 			Else
@@ -5917,14 +5785,14 @@ function Show-NewStuff
 				New-ItemProperty -Path "$Config_RootHKCU$AppShortName" -Name "ShowNewStuff" -Value "true"
 				If ($Error)
 				{
-					Log -text "An error occured while attempting to create the ShowNewStuff attribute for the tool in the registry." -Component "ShowNewStuff.psf_checkboxDontShowInTheFuture_CheckedChanged" -Type 3
-					Log -text "$Error" -Component "ShowNewStuff.psf_checkboxDontShowInTheFuture_CheckedChanged" -Type 3
-					Log -text "" -Component "ShowNewStuff.psf_checkboxDontShowInTheFuture_CheckedChanged" -Type 3
-					Show-MessageBox_psf -title "ERROR" -text "An error occured. See log for details." -boxtype 1 -image 5 -x ($formNewStuff.Location.X + ($formNewStuff.Size.Width / 2)) -y ($formNewStuff.Location.Y + ($formNewStuff.Size.Height / 2))
+					Log -text "An error occured while attempting to create the ShowNewStuff attribute for the tool in the registry." -Component "ShowNewStuff_checkboxDontShowInTheFuture_CheckedChanged" -Type 3
+					Log -text "$Error" -Component "ShowNewStuff_checkboxDontShowInTheFuture_CheckedChanged" -Type 3
+					Log -text "" -Component "ShowNewStuff_checkboxDontShowInTheFuture_CheckedChanged" -Type 3
+					Show-MessageBox -title "ERROR" -text "An error occured. See log for details." -boxtype 1 -image 5 -x ($formNewStuff.Location.X + ($formNewStuff.Size.Width / 2)) -y ($formNewStuff.Location.Y + ($formNewStuff.Size.Height / 2))
 				}
 				Else
 				{
-					Debug-Log -text "Successfully created the ShowNewStuff attribute" -Component "ShowNewStuff.psf_checkboxDontShowInTheFuture_CheckedChanged" -Type 4
+					Log -text "Successfully created the ShowNewStuff attribute" -Component "ShowNewStuff_checkboxDontShowInTheFuture_CheckedChanged" -Type 4
 				}
 			}
 		}
@@ -6029,7 +5897,7 @@ function Show-NewStuff
 	return $formNewStuff.ShowDialog()
 
 }
-#endregion Source: ShowNewStuff.psf
+#endregion Source: ShowNewStuff
 
 #Start the application
 Show-MainForm
